@@ -60,8 +60,4 @@ countFiles<-dirFiles[grep("counts.tsv", dirFiles)]
 for(file in countFiles){
   plot_cag_count_files(file)
 }
-
-
-
-
 ```
