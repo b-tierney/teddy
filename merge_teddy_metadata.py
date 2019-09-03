@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-#krisch1=pd.read_csv('m_45_jkrischer_niddk_30apr2016_1.csv')
+krisch1=pd.read_csv('m_45_jkrischer_niddk_30apr2016_1.csv')
 krisch=pd.read_csv('m_45_jkrischer_niddk_30apr2016_2.csv')
 srarundata=pd.read_csv('SraRunTable.txt',sep='\t')
 niddk_data=pd.read_csv('niddk_age_sample_mapping_data',sep='\t')
@@ -19,4 +19,4 @@ srarundata=srarundata[['Sample_Name','submitted_subject_id','sex']]
 #merge the sra data and the krischner data
 sra_krisch=krisch.merge(srarundata,left_on='MASKID',right_on='submitted_subject_id')
 
-#solve the time from seroconversion problem 
+#solve the time from seroconversion problem
