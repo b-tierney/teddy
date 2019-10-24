@@ -17,7 +17,7 @@ outputList_full=list()
 outputList_subset=list()
 for(cag in cagset){
     tryCatch({
-      output=lmer(full_dataset[,cag]~seroconverted_at_sampling+diabetes_at_sampling+seroconverted_ever+t1d_ever+age+(1|subjectID),data=full_dataset)
+      output=lmer(full_dataset[,cag]~seroconverted_at_sampling+seroconverted_ever+age+(1|subjectID),data=full_dataset)
       sum=summary(output)$optinfo$conv$lme4$messages
       if(is.null(sum)==TRUE){
         sum=''
@@ -34,7 +34,7 @@ for(cag in cagset){
       print('Warning')
     })  
   tryCatch({
-    output=lmer(full_dataset2[,cag]~seroconverted_ever+t1d_ever+age+(1|subjectID),data=full_dataset2)
+    output=lmer(full_dataset2[,cag]~seroconverted_ever+age+(1|subjectID),data=full_dataset2)
     sum=summary(output)$optinfo$conv$lme4$messages
     if(is.null(sum)==TRUE){
       sum=''
@@ -56,4 +56,4 @@ outputList_full=do.call(rbind,outputList_full)
 outputList_subset=do.call(rbind,outputList_subset)
 
 write.csv(outputList_full,'diabimmune_association_outputs_full.csv')
-write.csv(outputList_subset,'diabimmune_association_outputs_subset.csv')
+write.csv(outputList_subset,'diabimmune_association_outputs_presero.csv')
