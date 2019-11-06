@@ -15,6 +15,11 @@ with open('diabetes_variables.csv') as f:
 		line=line.rstrip().split(',')
 		diabetes_data[line[0]]=','.join(line[1:])
 
+diabetes_data2={}
+with open('t1d_metadata_from_old_analysis.csv') as f:
+	for line in f:
+		line=line.rstrip().split(',')
+		diabetes_data2[line[0]]=','.join(line[1:])
 
 #for each line in sample dataframe
 output=[]
@@ -31,6 +36,7 @@ with open('sample_level_data.csv') as f:
 		try:
 			birth_info=birth_data[line[0]].split(',')
 			diabetes_info=diabetes_data[line[0]].split(',')
+			diabetes_info2=diabetes_data2[line[0]].split(',')
 		except:
 			continue
 		age=line[3]
