@@ -13,7 +13,7 @@ def load_taxa_data(ncbi_tax_id_file):
 	return taxaNameMap
 
 def run_diamond(input_file):
-	os.system('diamond blastx -d ./nr.dmnd -q %s -o %s_taxa_mapping.tsv --taxonmap ./prot.accession2taxid.gz --taxonnodes ./nodes.dmp --outfmt 102 -k 1'%(input_file,input_file))
+	os.system('./diamond blastx -d ./nr.dmnd -q %s -o %s_taxa_mapping.tsv --taxonmap ./prot.accession2taxid.gz --taxonnodes ./nodes.dmp --outfmt 102 -k 1'%(input_file,input_file))
 
 def find_species_abundances(input_file,ncbi_tax_id_file):
 	taxaNameMap=load_taxa_data(ncbi_tax_id_file)
