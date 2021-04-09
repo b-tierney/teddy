@@ -1,7 +1,5 @@
 #process diabimmune metadata
 
-#SOMETHING IS WRONG WITH DIABETES AT SAMPLING VARIABLE, PROBABLY NEED TO REMAKE
-
 library(tidyverse)
 
 collapse_on_subject_id <- function(data){
@@ -13,14 +11,15 @@ collapse_on_subject_id <- function(data){
   for(s in subjects){
     data_sub_char = data %>% filter(SubjectID == s) %>% unique %>% select_if(is.character)
     data_sub_fac = data %>% filter(SubjectID == s) %>% unique %>% select_if(is.factor)
-    todrop[[s]] = map(bind_cols(data_sub_char,data_sub_fac), function(x) length(unique(x))) %>% data.frame %>% t %>% data.frame %>% rownames_to_column() %>% filter(.>1) %>% select(rowname) %>% unlist %>% unname
+    data_sub_log = data %>% filter(SubjectID == s) %>% unique %>% select_if(is.logical)
+    todrop[[s]] = map(bind_cols(data_sub_char,data_sub_fac,data_sub_log), function(x) length(unique(x))) %>% data.frame %>% t %>% data.frame %>% rownames_to_column() %>% filter(.>1) %>% select(rowname) %>% unlist %>% unname
   }
   #remove columns and collapse data
-  todrop = unique(unlist(unname(todrop)))
-  if(length(todrop)>0){
-    data = data %>% select(-all_of(todrop))
-  }
-  #also find columns that contain only one unique value
+  todrop = c('age',unique(unlist(unname(todrop))))
+  data = data %>% select(-all_of(todrop))
+  data_num = data %>% select_if(function(col) all(col == .$SubjectID) | is.numeric(col))  %>% group_by(SubjectID) %>% summarize_all(mean,na.rm=TRUE)
+  data_nonnumeric = data %>% select(-c(data %>% select_if(is.numeric) %>% colnames)) %>% unique
+  data = inner_join(data_num,data_nonnumeric)
   to_drop_single_val = map(data, function(x) length(unique(x))) %>% data.frame %>% t %>% data.frame %>% rownames_to_column() %>% filter(.==1) %>% select(rowname) %>% unlist %>% unname
   if(length(to_drop_single_val)>0){
     data = data %>% select(-all_of(to_drop_single_val))

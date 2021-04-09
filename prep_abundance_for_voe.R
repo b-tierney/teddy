@@ -51,6 +51,6 @@ averaged_data = averaged_data %>% filter(SubjectID %in% metadata$SubjectID)
 metadata = metadata %>% filter(SubjectID %in% averaged_data$SubjectID)
 
 saveRDS(object = averaged_data,outputname)
-saveRDS(object = metadata,outputname_metadata)
+saveRDS(object = metadata %>% select(-X),outputname_metadata)
 
 print('done')

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #for each file, split it into component parts and store those in their own little folder
-for file in gene_names_batched; do
+for file in *batched; do
 
 	root=$(echo $file | cut -f1 -d_)
 
