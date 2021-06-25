@@ -28,7 +28,7 @@ collapse_on_subject_id <- function(data){
   #remove columns and collapse data
   todrop = c('age_at_collection',unique(unlist(unname(todrop))))
   data = data %>% select(-all_of(todrop))
-  data_num = data %>% select_if(function(col) all(col == .$SubjectID) | is.numeric(col))  %>% group_by(SubjectID) %>% summarize_all(mean,na.rm=TRUE)
+  data_num = data %>% {bind_cols(select_at(., "SubjectID"),select_if(., is.numeric))}  %>% group_by(SubjectID) %>% summarize_all(mean,na.rm=TRUE)
   data_nonnumeric = data %>% select(-c(data %>% select_if(is.numeric) %>% colnames)) %>% unique
   data = inner_join(data_num,data_nonnumeric)
   to_drop_single_val = map(data, function(x) length(unique(x))) %>% data.frame %>% t %>% data.frame %>% rownames_to_column() %>% filter(.==1) %>% select(rowname) %>% unlist %>% unname
@@ -61,7 +61,7 @@ write.csv(data,'~/Dropbox (HMS)/RagGroup Team Folder/Braden Tierney/TEDDY/proces
 
 #all healthy vs post seroconversion
 controls = metadata %>% filter(t1d_sero_control == 'control') %>% mutate(condition = 0)
-cases = metadata %>% filter(age_at_collection>age_mult_persist,!is.na(age_mult_persist)) %>% mutate(condition = 1)
+cases = metadata %>% filter(age_at_collection>=age_mult_persist,!is.na(age_mult_persist)) %>% mutate(condition = 1)
 data = bind_rows(cases,controls)
 data = data %>% select(-c('t1d_sero_control','age_first_MIAA','age_first_GAD','age_first_IA2A','age_first_pos','age_mult_persist'))
 data = collapse_on_subject_id(data)
@@ -70,7 +70,7 @@ write.csv(data,'~/Dropbox (HMS)/RagGroup Team Folder/Braden Tierney/TEDDY/proces
 
 #all healthy vs MIAA
 controls = metadata %>% filter(t1d_sero_control == 'control') %>% mutate(condition = 0)
-cases = metadata %>% filter(age_at_collection>age_first_MIAA,!is.na(age_first_MIAA)) %>% mutate(condition = 1)
+cases = metadata %>% filter(age_at_collection>=age_first_MIAA,!is.na(age_first_MIAA)) %>% mutate(condition = 1)
 data = bind_rows(cases,controls)
 data = data %>% select(-c('t1d_sero_control','age_first_MIAA','age_first_GAD','age_first_IA2A','age_first_pos','age_mult_persist'))
 data = collapse_on_subject_id(data)
@@ -79,7 +79,7 @@ write.csv(data,'~/Dropbox (HMS)/RagGroup Team Folder/Braden Tierney/TEDDY/proces
 
 #all healthy vs GAD
 controls = metadata %>% filter(t1d_sero_control == 'control') %>% mutate(condition = 0)
-cases = metadata %>% filter(age_at_collection>age_first_GAD,!is.na(age_first_GAD)) %>% mutate(condition = 1)
+cases = metadata %>% filter(age_at_collection>=age_first_GAD,!is.na(age_first_GAD)) %>% mutate(condition = 1)
 data = bind_rows(cases,controls)
 data = data %>% select(-c('t1d_sero_control','age_first_MIAA','age_first_GAD','age_first_IA2A','age_first_pos','age_mult_persist'))
 data = collapse_on_subject_id(data)
@@ -88,7 +88,7 @@ write.csv(data,'~/Dropbox (HMS)/RagGroup Team Folder/Braden Tierney/TEDDY/proces
 
 #all healthy vs IA2A
 controls = metadata %>% filter(t1d_sero_control == 'control') %>% mutate(condition = 0)
-cases = metadata %>% filter(age_at_collection>age_first_IA2A,!is.na(age_first_IA2A)) %>% mutate(condition = 1)
+cases = metadata %>% filter(age_at_collection>=age_first_IA2A,!is.na(age_first_IA2A)) %>% mutate(condition = 1)
 data = bind_rows(cases,controls)
 data = data %>% select(-c('t1d_sero_control','age_first_MIAA','age_first_GAD','age_first_IA2A','age_first_pos','age_mult_persist'))
 data = collapse_on_subject_id(data)
@@ -279,7 +279,7 @@ controls = metadata %>% filter(t1d_sero_control == 'control') %>% mutate(conditi
 cases = metadata %>% filter(age_at_collection<age_mult_persist,!is.na(age_mult_persist)) %>% mutate(condition = 1)
 data = bind_rows(cases,controls)
 data = data %>% select(-c('t1d_sero_control','age_first_MIAA','age_first_GAD','age_first_IA2A','age_first_pos','age_mult_persist'))
-data = data  %>% filter(age_at_collection<=548,age_at_collection<=730)
+data = data  %>% filter(age_at_collection>=548,age_at_collection<=730)
 data = collapse_on_subject_id(data)
 data$condition[data$condition>0]=1
 write.csv(data,'~/Dropbox (HMS)/RagGroup Team Folder/Braden Tierney/TEDDY/processed_teddy_metadata_for_regression/healthy_pre-sero-18-24month.csv')
@@ -304,4 +304,10 @@ data = data  %>% filter(age_at_collection<=730)
 data = collapse_on_subject_id(data)
 data$condition[data$condition>0]=1
 write.csv(data,'~/Dropbox (HMS)/RagGroup Team Folder/Braden Tierney/TEDDY/processed_teddy_metadata_for_regression/healthy_pre-sero-24month.csv')
+
+#all healthy vs HLA
+data = collapse_on_subject_id(metadata)
+data$condition = data$HLA_Category
+data = data %>% select(-HLA_Category)
+write.csv(data,'~/Dropbox (HMS)/RagGroup Team Folder/Braden Tierney/TEDDY/processed_teddy_metadata_for_regression/healthy_HLA.csv')
 

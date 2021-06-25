@@ -7,6 +7,7 @@ abundance_file = args[[1]]
 metadata_file = args[[2]]
 mapping_file = args[[3]]
 
+
 system(paste('mkdir',gsub('.csv','',metadata_file)))
 outputname = paste(gsub('.csv','',metadata_file),'/',gsub('.csv','',metadata_file),'_',gsub('.csv','.rds',abundance_file),sep='')
 outputname_metadata = paste(gsub('.csv','',metadata_file),'/',gsub('.csv','',metadata_file),'_metadata_filtered.rds',sep='')
@@ -25,7 +26,7 @@ print('Loading data...')
 
 d = read.csv(abundance_file) %>% select(-X)
 metadata = read.csv(metadata_file,header=TRUE)
-mapping = read.csv(mapping_file,header=F,sep='\t') %>% select(V1, V2) %>% rename(SubjectID = V2,sampleID = V1)
+mapping = read.csv(mapping_file,header=T,sep=',') %>% select(V1, V2) %>% rename(SubjectID = V1,sampleID = V2)
 d = d %>% as_tibble %>% column_to_rownames('genename')
 d = t(d) %>% as.data.frame %>% rownames_to_column('sampleID')
 
@@ -48,7 +49,7 @@ print('Writing to file...')
 averaged_data = bind_cols(subs,output)
 
 averaged_data = averaged_data %>% filter(SubjectID %in% metadata$SubjectID)
-metadata = metadata %>% filter(SubjectID %in% averaged_data$SubjectID)
+metadata = metadata %>% filter(SubjectID %in% averaged_data$SubjectID) 
 
 saveRDS(object = averaged_data,outputname)
 saveRDS(object = metadata %>% select(-X),outputname_metadata)
