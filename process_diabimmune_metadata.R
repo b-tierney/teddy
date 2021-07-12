@@ -17,7 +17,7 @@ collapse_on_subject_id <- function(data){
   #remove columns and collapse data
   todrop = c('age',unique(unlist(unname(todrop))))
   data = data %>% select(-all_of(todrop))
-  data_num = data %>% select_if(function(col) all(col == .$SubjectID) | is.numeric(col))  %>% group_by(SubjectID) %>% summarize_all(mean,na.rm=TRUE)
+  data_num = data %>% {bind_cols(select_at(., "SubjectID"),select_if(., is.numeric))}  %>% group_by(SubjectID) %>% summarize_all(mean,na.rm=TRUE)
   data_nonnumeric = data %>% select(-c(data %>% select_if(is.numeric) %>% colnames)) %>% unique
   data = inner_join(data_num,data_nonnumeric)
   to_drop_single_val = map(data, function(x) length(unique(x))) %>% data.frame %>% t %>% data.frame %>% rownames_to_column() %>% filter(.==1) %>% select(rowname) %>% unlist %>% unname
@@ -37,6 +37,20 @@ metadata = metadata %>% select(-c(all_of(toremove)))  %>% rename(SubjectID = sub
 
 #set type of columns that could be numeric or factor
 metadata$HLA_risk_class = as.factor(metadata$HLA_risk_class)
+metadata$gestational_diabetes = as.factor(metadata$gestational_diabetes)
+metadata$seroconverted_at_sampling = as.factor(metadata$seroconverted_at_sampling)
+metadata$seroconverted_ever = as.factor(metadata$seroconverted_ever)
+metadata$diabetes_at_sampling = as.factor(metadata$diabetes_at_sampling)
+metadata$IAA = as.factor(metadata$IAA)
+metadata$GADA = as.factor(metadata$GADA)
+metadata$IA2A = as.factor(metadata$IA2A)
+metadata$ZNT8A = as.factor(metadata$ZNT8A)
+metadata$ICA = as.factor(metadata$ICA)
+metadata$IAA_at_sampling = as.factor(metadata$IAA_at_sampling)
+metadata$GADA_at_sampling = as.factor(metadata$GADA_at_sampling)
+metadata$IA2A_at_sampling = as.factor(metadata$IA2A_at_sampling)
+metadata$ZNT8A_at_sampling = as.factor(metadata$ZNT8A_at_sampling)
+metadata$ICA_at_sampling = as.factor(metadata$ICA_at_sampling)
 
 #all healthy vs post T1D
 controls = metadata %>% filter(diabetes_at_sampling == 0,t1d_ever==0) %>% mutate(condition = 0)
@@ -192,6 +206,25 @@ data = data  %>% filter(age<=365)
 data = collapse_on_subject_id(data)
 write.csv(data,'~/Dropbox (HMS)/RagGroup Team Folder/Braden Tierney/TEDDY/processed_diabimmune_metadata_for_regression/healthy_pre-sero-12month.csv')
 
+#12-18 MONTH
+#all healthy vs pre T1D
+controls = metadata %>% filter(t1d_ever == 0) %>% mutate(condition = 0)
+cases = metadata %>% filter(diabetes_at_sampling == 0, t1d_ever == 1) %>% mutate(condition = 1)
+data = bind_rows(cases,controls)
+data = data %>% select(-c('t1d_ever','diabetes_at_sampling','GADA_at_sampling','ZNT8A_at_sampling','IAA_at_sampling','ICA_at_sampling','IA2A_at_sampling'))
+data = data  %>% filter(age>=365, age <=548)
+data = collapse_on_subject_id(data)
+write.csv(data,'~/Dropbox (HMS)/RagGroup Team Folder/Braden Tierney/TEDDY/processed_diabimmune_metadata_for_regression/healthy_pre-t1d-12-18month.csv')
+
+#all healthy vs pre seroconversion
+controls = metadata %>% filter(seroconverted_ever == 0) %>% mutate(condition = 0)
+cases = metadata %>% filter(seroconverted_ever == 1, seroconverted_at_sampling == 0) %>% mutate(condition = 1)
+data = bind_rows(cases,controls)
+data = data %>% select(-c('seroconverted_ever','seroconverted_at_sampling','GADA_at_sampling','ZNT8A_at_sampling','IAA_at_sampling','ICA_at_sampling','IA2A_at_sampling'))
+data = data  %>% filter(age>=365, age <=548)
+data = collapse_on_subject_id(data)
+write.csv(data,'~/Dropbox (HMS)/RagGroup Team Folder/Braden Tierney/TEDDY/processed_diabimmune_metadata_for_regression/healthy_pre-sero-12-18month.csv')
+
 #18 MONTH
 #all healthy vs pre T1D
 controls = metadata %>% filter(t1d_ever == 0) %>% mutate(condition = 0)
@@ -210,4 +243,51 @@ data = data %>% select(-c('seroconverted_ever','seroconverted_at_sampling','GADA
 data = data  %>% filter(age<=548)
 data = collapse_on_subject_id(data)
 write.csv(data,'~/Dropbox (HMS)/RagGroup Team Folder/Braden Tierney/TEDDY/processed_diabimmune_metadata_for_regression/healthy_pre-sero-18month.csv')
+
+#18-24 MONTH
+#all healthy vs pre T1D
+controls = metadata %>% filter(t1d_ever == 0) %>% mutate(condition = 0)
+cases = metadata %>% filter(diabetes_at_sampling == 0, t1d_ever == 1) %>% mutate(condition = 1)
+data = bind_rows(cases,controls)
+data = data %>% select(-c('t1d_ever','diabetes_at_sampling','GADA_at_sampling','ZNT8A_at_sampling','IAA_at_sampling','ICA_at_sampling','IA2A_at_sampling'))
+data = data  %>% filter(age>=548, age <=730)
+data = collapse_on_subject_id(data)
+write.csv(data,'~/Dropbox (HMS)/RagGroup Team Folder/Braden Tierney/TEDDY/processed_diabimmune_metadata_for_regression/healthy_pre-t1d-18-24month.csv')
+
+#all healthy vs pre seroconversion
+controls = metadata %>% filter(seroconverted_ever == 0) %>% mutate(condition = 0)
+cases = metadata %>% filter(seroconverted_ever == 1, seroconverted_at_sampling == 0) %>% mutate(condition = 1)
+data = bind_rows(cases,controls)
+data = data %>% select(-c('seroconverted_ever','seroconverted_at_sampling','GADA_at_sampling','ZNT8A_at_sampling','IAA_at_sampling','ICA_at_sampling','IA2A_at_sampling'))
+data = data  %>% filter(age>=548, age <=730)
+data = collapse_on_subject_id(data)
+write.csv(data,'~/Dropbox (HMS)/RagGroup Team Folder/Braden Tierney/TEDDY/processed_diabimmune_metadata_for_regression/healthy_pre-sero-18-24month.csv')
+
+#24 MONTH
+#all healthy vs pre T1D
+controls = metadata %>% filter(t1d_ever == 0) %>% mutate(condition = 0)
+cases = metadata %>% filter(diabetes_at_sampling == 0, t1d_ever == 1) %>% mutate(condition = 1)
+data = bind_rows(cases,controls)
+data = data %>% select(-c('t1d_ever','diabetes_at_sampling','GADA_at_sampling','ZNT8A_at_sampling','IAA_at_sampling','ICA_at_sampling','IA2A_at_sampling'))
+data = data  %>% filter(age<=730)
+data = collapse_on_subject_id(data)
+write.csv(data,'~/Dropbox (HMS)/RagGroup Team Folder/Braden Tierney/TEDDY/processed_diabimmune_metadata_for_regression/healthy_pre-t1d-24month.csv')
+
+#all healthy vs pre seroconversion
+controls = metadata %>% filter(seroconverted_ever == 0) %>% mutate(condition = 0)
+cases = metadata %>% filter(seroconverted_ever == 1, seroconverted_at_sampling == 0) %>% mutate(condition = 1)
+data = bind_rows(cases,controls)
+data = data %>% select(-c('seroconverted_ever','seroconverted_at_sampling','GADA_at_sampling','ZNT8A_at_sampling','IAA_at_sampling','ICA_at_sampling','IA2A_at_sampling'))
+data = data  %>% filter(age<=730)
+data = collapse_on_subject_id(data)
+write.csv(data,'~/Dropbox (HMS)/RagGroup Team Folder/Braden Tierney/TEDDY/processed_diabimmune_metadata_for_regression/healthy_pre-sero-24month.csv')
+
+
+
+
+
+
+
+
+
 

@@ -14,6 +14,7 @@ for(f in files){
 }
 
 data = bind_rows(data)
-summarized_data = bind_rows(summarized_data)
+summarized_data = bind_rows(map(summarized_data, function(x) x[[1]]))
 
 saveRDS(data,'full_vibration_output.rds')
+saveRDS(summarized_data,'full_vibration_output_summarized.rds')

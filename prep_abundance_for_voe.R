@@ -7,7 +7,6 @@ abundance_file = args[[1]]
 metadata_file = args[[2]]
 mapping_file = args[[3]]
 
-
 system(paste('mkdir',gsub('.csv','',metadata_file)))
 outputname = paste(gsub('.csv','',metadata_file),'/',gsub('.csv','',metadata_file),'_',gsub('.csv','.rds',abundance_file),sep='')
 outputname_metadata = paste(gsub('.csv','',metadata_file),'/',gsub('.csv','',metadata_file),'_metadata_filtered.rds',sep='')
