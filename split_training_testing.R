@@ -6,7 +6,7 @@ args = commandArgs(trailingOnly=TRUE)
 
 #load in merged metadata
 
-metadata = readRDS(paste('metadata/',args[[1]],sep=''))
+metadata = readRDS(paste(args[[1]],sep=''))
 
 # randomly select teddy training/testing
 
