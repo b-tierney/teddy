@@ -9,7 +9,7 @@ args = commandArgs(trailingOnly=TRUE)
 # teddy parsed data locs = ../parsed_data/
 
 # load in a file containing the names of the batched files
-suffixes = read.csv('suffixes') %>% unlist %>% unname
+suffixes = read.csv('suffixes',header=FALSE) %>% unlist %>% unname
 
 # load in a file containing the prefixes of the analyses
 p = args[[1]]
