@@ -19,6 +19,8 @@ echo curl -X PUT --data-binary @"$file" https://objectstorage.eu-zurich-1.oracle
 done
 
 
+oci os object list --all -bn t1d_db_merged | cut -f4 -d'"' | cut -f1 -d/ | sort | uniq -c
+
 while read p; do 
 
 p=$(echo $p | sed 's/.\///g')
