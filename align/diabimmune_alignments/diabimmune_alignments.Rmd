@@ -1,0 +1,70 @@
+---
+title: "diabimmune_alignments"
+author: "Sam Zimmerman"
+date: "6/9/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#I am going to align the diabimmune samples
+
+```{bash}
+
+# first split files so we can run 2 samples at a time
+# from /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/diabimmune_input_files
+
+split -l 2 -d /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/diabimmune_dl_links_with_sample_names.txt diabimmune_dl_links_with_sample_names_
+# now put these files into a single file 
+# from # /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/
+ls /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/diabimmune_input_files/diabimmune_dl_links_with_sample_names_* > diabimmune_input_file_for_script.txt
+
+sbatch -c 4 -t 0-11:59 -p short --mem=50G --array=1-584%50 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/align_diabimmune_samples_job_array.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/diabimmune_input_file_for_script.txt /n/scratch3/users/a/adk9/TEDDY/diabimmune_alignment_output /n/data1/joslin/icrb/kostic/szimmerman/files_for_gene_catalogue/adapters.fa /n/data1/joslin/icrb/kostic/szimmerman/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.bitmask /n/data1/joslin/icrb/kostic/szimmerman/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.srprism /n/scratch3/users/a/adk9/TEDDY/tmp 4 /n/scratch3/users/a/adk9/TEDDY/all_seqs_rep_30_db_ted_merged_seqs_db.dmnd /n/scratch3/users/a/adk9/TEDDY/all_seqs_rep_30_db_ted_merged_seqs.fasta
+# job ID 34494248
+
+## now lets find the ones that failed. First get the files to put back into the script
+sacct --format="JobID%30,JobName,State" -S 2021-06-09 | grep "align_dia+" | grep "34494248_" | grep -v "COMPLETED" | awk '{print $1}' | cut -d '_' -f2 | while read line; do sed "${line}q;d" /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/diabimmune_input_file_for_script.txt; done > /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/diabimmune_input_file_for_script_redo_june_11_2021.txt
+# now get the samples to remove before I redo
+sacct --format="JobID%30,JobName,State" -S 2021-06-09 | grep "align_dia+" | grep "34494248_" | grep -v "COMPLETED" | awk '{print $1}' | cut -d '_' -f2 | while read line; do sed "${line}q;d" /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/diabimmune_input_file_for_script.txt; done | while read line; do cat $line; done | awk '{print $1}' > /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/diabimmune_input_file_for_script_redo_june_11_2021_sampleNames.txt
+
+# remove folders that have samples needed to redo
+while read line
+do
+rm -r /n/scratch3/users/a/adk9/TEDDY/diabimmune_alignment_output/${line}
+done < /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/diabimmune_input_file_for_script_redo_june_11_2021_sampleNames.txt
+
+# now run modified script to correct paired end sequences
+
+sbatch -c 4 -t 0-11:59 -p short --mem=50G --array=1-5 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/align_diabimmune_samples_job_array_correct_paired_end_data.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/diabimmune_input_file_for_script_redo_june_11_2021.txt /n/scratch3/users/a/adk9/TEDDY/diabimmune_alignment_output /n/data1/joslin/icrb/kostic/szimmerman/files_for_gene_catalogue/adapters.fa /n/data1/joslin/icrb/kostic/szimmerman/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.bitmask /n/data1/joslin/icrb/kostic/szimmerman/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.srprism /n/scratch3/users/a/adk9/TEDDY/tmp 4 /n/scratch3/users/a/adk9/TEDDY/all_seqs_rep_30_db_ted_merged_seqs_db.dmnd /n/scratch3/users/a/adk9/TEDDY/all_seqs_rep_30_db_ted_merged_seqs.fasta
+
+# one ran out of memory so I have to redo
+sacct --format="JobID%30,JobName,State" -S 2021-06-11 | grep "align_dia+" | grep "34678496_" | grep -v "COMPLETED" | awk '{print $1}' | cut -d '_' -f2 | while read line; do sed "${line}q;d" /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/diabimmune_input_file_for_script_redo_june_11_2021.txt; done > /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/diabimmune_input_file_for_script_redo_june_16_2021.txt
+# now get the samples to remove before I redo
+sacct --format="JobID%30,JobName,State" -S 2021-06-11 | grep "align_dia+" | grep "34678496_" | grep -v "COMPLETED" | awk '{print $1}' | cut -d '_' -f2 | while read line; do sed "${line}q;d" /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/diabimmune_input_file_for_script_redo_june_11_2021.txt; done | while read line; do cat $line; done | awk '{print $1}' > /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/diabimmune_input_file_for_script_redo_june_16_2021_sampleNames.txt
+
+# remove folders that have samples needed to redo
+while read line
+do
+rm -r /n/scratch3/users/a/adk9/TEDDY/diabimmune_alignment_output/${line}
+done < /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/diabimmune_input_file_for_script_redo_june_16_2021_sampleNames.txt
+
+# rerun
+sbatch -c 4 -t 0-11:59 -p short --mem=75G --array=1-1 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/align_diabimmune_samples_job_array_correct_paired_end_data.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/diabimmune_input_file_for_script_redo_june_16_2021.txt /n/scratch3/users/a/adk9/TEDDY/diabimmune_alignment_output /n/data1/joslin/icrb/kostic/szimmerman/files_for_gene_catalogue/adapters.fa /n/data1/joslin/icrb/kostic/szimmerman/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.bitmask /n/data1/joslin/icrb/kostic/szimmerman/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.srprism /n/scratch3/users/a/adk9/TEDDY/tmp 4 /n/scratch3/users/a/adk9/TEDDY/all_seqs_rep_30_db_ted_merged_seqs_db.dmnd /n/scratch3/users/a/adk9/TEDDY/all_seqs_rep_30_db_ted_merged_seqs.fasta
+
+
+## apparently I have to redo samples in this file  /n/scratch3/users/a/adk9/TEDDY/diabimmune_alignment_output/failed
+
+grep -f /n/scratch3/users/a/adk9/TEDDY/diabimmune_alignment_output/failed -F -w /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/diabimmune_dl_links_with_sample_names.txt > /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/diabimmune_samples_redo_june17_2021.txt
+
+mkdir diabimmune_samples_redo_june17_2021
+cd diabimmune_samples_redo_june17_2021
+split -l 1 -d /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/diabimmune_samples_redo_june17_2021.txt diabimmune_samples_redo_june17_2021_
+cd ..
+ls /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/diabimmune_samples_redo_june17_2021/diabimmune_samples_redo_june17_2021_* > diabimmune_file_redo_june17_2021.txt
+
+# rerun
+
+sbatch -c 4 -t 0-11:59 -p short --mem=50G --array=1-10 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/align_diabimmune_samples_job_array.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/diabimmune_file_redo_june17_2021.txt /n/scratch3/users/a/adk9/TEDDY/diabimmune_alignment_output /n/data1/joslin/icrb/kostic/szimmerman/files_for_gene_catalogue/adapters.fa /n/data1/joslin/icrb/kostic/szimmerman/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.bitmask /n/data1/joslin/icrb/kostic/szimmerman/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.srprism /n/scratch3/users/a/adk9/TEDDY/tmp 4 /n/scratch3/users/a/adk9/TEDDY/all_seqs_rep_30_db_ted_merged_seqs_db.dmnd /n/scratch3/users/a/adk9/TEDDY/all_seqs_rep_30_db_ted_merged_seqs.fasta
+```

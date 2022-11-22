@@ -1,0 +1,89 @@
+---
+title: "teddy_alignments"
+author: "Sam Zimmerman"
+date: "1/12/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{bash}
+cd fastq_inputs_split
+split -l 2 -d /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/fastq_inputs.txt fastq_inputs_
+ls /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/fastq_inputs_split/fastq_inputs_* > fastq_inputs_all_files.txt
+split -l 3290 -d fastq_inputs_all_files.txt fastq_inputs_all_files_
+
+
+
+# make diamond database. diamond v2.0.4.142
+source activate /home/sez10/miniconda3/envs/meta_assemblers
+diamond makedb --in all_seqs_rep_30_db_ted_merged_seqs.fasta -d all_seqs_rep_30_db_ted_merged_seqs_db
+
+## now start jobs. first sez10
+sbatch -c 4 -t 0-11:59 -p short --mem=30G --array=1-3290%100 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/TEDDY_alignment_job_array.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/fastq_inputs_split/fastq_inputs_all_files_00 /n/scratch3/users/a/adk9/TEDDY/alignment_output /n/scratch3/users/a/adk9/TEDDY/all_seqs_rep_30_db_ted_merged_seqs_db.dmnd /n/scratch3/users/a/adk9/TEDDY/all_seqs_rep_30_db_ted_merged_seqs.fasta 
+# job ID is 29367889
+
+# jobs failed because assemblies were bad. so lets get sample names of failed files to redo
+sacct --format="JobID%30,JobName,State" -S 2021-03-09 | grep "TEDDY_ali+" | grep -v "COMPLETED" | awk '{print $1}' | cut -d '_' -f2 | while read line; do sed "${line}q;d" /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/fastq_inputs_split/fastq_inputs_all_files_00; done | while read line; do cat $line; done | awk -F '/' '{print $NF}' | cut -d '_' -f1 > /n/scratch3/users/a/adk9/TEDDY/samples_input_april8/samples_to_redo_april8
+split -l 1 -d /n/scratch3/users/a/adk9/TEDDY/samples_input_april8/samples_to_redo_april8 samples_to_redo_april8_
+
+### remove the folders that I have to redo
+while read line
+do
+rm -r /n/scratch3/users/a/adk9/TEDDY/alignment_output/${line}
+done < /n/scratch3/users/a/adk9/TEDDY/samples_input_april8/samples_to_redo_april8
+## now redo those samples
+
+### redo jobs that need redownloading. this will have to be done when we get access back
+for myfile in /n/scratch3/users/a/adk9/TEDDY/samples_input_april8/samples_to_redo_april8_*
+do
+  sbatch -p short -c 4 -n 1 --mem=40G -t 0-11:59 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/align_and_preprocess.bash ${myfile} /n/scratch3/users/a/adk9/TEDDY/alignment_output /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/adapters.fa /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.bitmask /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.srprism /n/scratch3/users/a/adk9/TEDDY/tmp 4 /n/scratch3/users/a/adk9/TEDDY/all_seqs_rep_30_db_ted_merged_seqs_db.dmnd /n/scratch3/users/a/adk9/TEDDY/all_seqs_rep_30_db_ted_merged_seqs.fasta
+done
+
+
+## start next half of jobs
+sbatch -c 4 -t 0-11:59 -p short --mem=30G --array=1-3290%100 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/TEDDY_alignment_job_array.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/fastq_inputs_split/fastq_inputs_all_files_01 /n/scratch3/users/a/adk9/TEDDY/alignment_output /n/scratch3/users/a/adk9/TEDDY/all_seqs_rep_30_db_ted_merged_seqs_db.dmnd /n/scratch3/users/a/adk9/TEDDY/all_seqs_rep_30_db_ted_merged_seqs.fasta # job ID is 31050058
+# check for jobs that failed or didn't finish.
+sacct --format="JobID%30,JobName,State" -S 2021-04-08 | grep "TEDDY_ali+" | grep -v "COMPLETED" | awk '{print $1}' | cut -d '_' -f2 | while read line; do sed "${line}q;d" /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/fastq_inputs_split/fastq_inputs_all_files_01; done > /n/scratch3/users/a/adk9/TEDDY/fastq_inputs_redo_april15.txt
+## one job timed out. redo
+sbatch -c 4 -t 1-00:00 -p medium --mem=30G --array=1-1%1 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/TEDDY_alignment_job_array.bash /n/scratch3/users/a/adk9/TEDDY/fastq_inputs_redo_april15.txt /n/scratch3/users/a/adk9/TEDDY/alignment_output /n/scratch3/users/a/adk9/TEDDY/all_seqs_rep_30_db_ted_merged_seqs_db.dmnd /n/scratch3/users/a/adk9/TEDDY/all_seqs_rep_30_db_ted_merged_seqs.fasta
+
+
+
+
+```
+
+
+See if I have all output files
+
+```{r}
+completed_tsv = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/count_files",pattern=".tsv.gz",recursive = T)
+completed_tsv = gsub("_alignment_data.tsv.gz","",basename(completed_tsv))
+
+fastq_input_files = read.table("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/fastq_inputs.txt",stringsAsFactors = F)
+fastq_input_files = fastq_input_files[,1]
+fastq_input_samples = basename(fastq_input_files)
+fastq_input_samples = gsub("_human_free.fastq.gz","",fastq_input_samples)
+fastq_input_samples = gsub("_human_free.fastq","",fastq_input_samples)
+
+all.equal(sort(fastq_input_samples),sort(completed_tsv))
+```
+
+Transfer files to dropbox
+
+```{bash}
+
+cd /n/data1/joslin/icrb/kostic/szimmerman
+
+ls /n/scratch3/users/a/adk9/TEDDY/alignment_output/*/*.tsv.gz > teddy_alignment_output.txt
+
+
+
+sbatch --mem=5G -p priority -c 1 -t 14-00:00 /n/data1/joslin/icrb/kostic/szimmerman/transfer_files_to_dropbox.bash teddy_alignment_output.txt Kostic_Lab/datasets/TEDDY/raw_alignments
+
+# get list of transferred fastq files
+rclone ls mydropbox:Kostic_Lab/datasets/TEDDY/raw_alignments/
+```
+

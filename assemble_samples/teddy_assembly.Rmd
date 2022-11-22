@@ -1,0 +1,412 @@
+---
+title: "teddy_assemble"
+author: "Sam Zimmerman"
+date: "6/9/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{bash}
+# run first 1000 jobs.
+/home/sez10/kostic_lab/teddy_analysis_scripts/batch_run_pipeline_megahit.bash /home/sez10/kostic_lab/teddy_analysis_scripts/sra_top1000.txt /n/scratch3/users/s/sez10/TEDDY/sra_out /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/adapters.fa /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.bitmask /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.srprism /n/scratch3/users/s/sez10/TEDDY/tmp 4
+
+### jobs to rerun out of the first 1000
+sacct -S 2020-06-12 | grep "run_pipel+" | grep -v "COMPLETED" | awk '{print $1}' | while read line; do grep "prefetch.2.10.7: 1) Downloading" slurm-$line.out; done | awk '{print $5}' | tr -d \'. > samples_to_redo_june16.txt
+## remove folders
+while read line; do rm -r sra_out/$line; done < samples_to_redo_june16.txt
+# remove old output folders
+rm slurm*.out
+## rerun jobs
+/home/sez10/kostic_lab/teddy_analysis_scripts/batch_run_pipeline_megahit.bash /n/scratch3/users/s/sez10/TEDDY/samples_to_redo_june16.txt /n/scratch3/users/s/sez10/TEDDY/sra_out /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/adapters.fa /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.bitmask /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.srprism /n/scratch3/users/s/sez10/TEDDY/tmp 4
+
+sacct -S 2020-06-16 | grep "run_pipel+" | grep -v "COMPLETED" | awk '{print $1}' | while read line; do grep "prefetch.2.10.7: 1) Downloading" slurm-$line.out; done | awk '{print $5}' | tr -d \'. > samples_to_redo_june18.txt
+## remove folders
+while read line; do rm -r sra_out/$line; done < samples_to_redo_june18.txt
+# remove old output folders
+rm slurm*.out
+# rerun jobs high mem
+/home/sez10/kostic_lab/teddy_analysis_scripts/batch_run_pipeline_megahit_highMem.bash /n/scratch3/users/s/sez10/TEDDY/samples_to_redo_june18.txt /n/scratch3/users/s/sez10/TEDDY/sra_out /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/adapters.fa /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.bitmask /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.srprism /n/scratch3/users/s/sez10/TEDDY/tmp 4
+
+```
+
+```{r}
+### get lines 1,001 to 2,000
+all_sra_data = read.table("/n/scratch3/users/b/btt5/TEDDY/allsradata",header=F)
+all_sra_data_1Kto5K <- all_sra_data[1001:2000,1]
+write.table(all_sra_data_1Kto5K,file="/home/sez10/kostic_lab/teddy_analysis_scripts/sra_1Kto2K.txt",quote=F,col.names=F,row.names=F)
+```
+
+```{bash}
+## run next 1000 assemblies
+/home/sez10/kostic_lab/teddy_analysis_scripts/batch_run_pipeline_megahit.bash /home/sez10/kostic_lab/teddy_analysis_scripts/sra_1Kto2K.txt /n/scratch3/users/s/sez10/TEDDY/sra_out /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/adapters.fa /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.bitmask /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.srprism /n/scratch3/users/s/sez10/TEDDY/tmp 4
+## get failed samples
+sacct -S 2020-06-18 | grep "run_pipel+" | grep -v "COMPLETED" | awk '{print $1}' | while read line; do grep --text "prefetch.2.10.7: 1) Downloading" slurm-$line.out; done | awk '{print $5}' | tr -d \'. > samples_to_redo_june23.txt
+## remove folders
+while read line; do rm -r sra_out/$line; done < samples_to_redo_june23.txt
+# remove old output folders
+rm slurm*.out
+## rerun failed jobs
+/home/sez10/kostic_lab/teddy_analysis_scripts/batch_run_pipeline_megahit.bash /n/scratch3/users/s/sez10/TEDDY/samples_to_redo_june23.txt /n/scratch3/users/s/sez10/TEDDY/sra_out /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/adapters.fa /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.bitmask /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.srprism /n/scratch3/users/s/sez10/TEDDY/tmp 4
+
+## find failed files to rerun
+sacct -S 2020-06-23 | grep "run_pipel+" | grep -v "COMPLETED" | awk '{print $1}' | while read line; do grep --text "prefetch.2.10.7: 1) Downloading" slurm-$line.out; done | awk '{print $5}' | tr -d \'. > samples_to_redo_june24.txt
+## remove folders
+while read line; do rm -r sra_out/$line; done < samples_to_redo_june24.txt
+# remove old output folders
+rm slurm*.out
+## rerun failed jobs
+/home/sez10/kostic_lab/teddy_analysis_scripts/batch_run_pipeline_megahit_highMem.bash /n/scratch3/users/s/sez10/TEDDY/samples_to_redo_june24.txt /n/scratch3/users/s/sez10/TEDDY/sra_out /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/adapters.fa /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.bitmask /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.srprism /n/scratch3/users/s/sez10/TEDDY/tmp 4
+
+```
+
+```{r}
+### get lines 2,001 to 3,000
+all_sra_data = read.table("/n/scratch3/users/b/btt5/TEDDY/allsradata",header=F)
+all_sra_data_1K <- all_sra_data[2001:3000,1]
+write.table(all_sra_data_1K,file="/home/sez10/kostic_lab/teddy_analysis_scripts/sra_2Kto3K.txt",quote=F,col.names=F,row.names=F)
+
+```
+
+```{bash}
+## run next 1000 assemblies
+/home/sez10/kostic_lab/teddy_analysis_scripts/batch_run_pipeline_megahit.bash /home/sez10/kostic_lab/teddy_analysis_scripts/sra_2Kto3K.txt /n/scratch3/users/s/sez10/TEDDY/sra_out /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/adapters.fa /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.bitmask /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.srprism /n/scratch3/users/s/sez10/TEDDY/tmp 4
+
+## get the ones that didn't finish
+sacct -S 2020-06-25 | grep "run_pipel+" | grep -v "COMPLETED" | awk '{print $1}' | while read line; do grep --text "prefetch.2.10.7: 1) Downloading" slurm-$line.out; done | awk '{print $5}' | tr -d \'. > samples_to_redo_june26.txt
+## remove folders
+while read line; do rm -r sra_out/$line; done < samples_to_redo_june26.txt
+# remove old output folders
+rm slurm*.out
+# rerun failed jobs
+/home/sez10/kostic_lab/teddy_analysis_scripts/batch_run_pipeline_megahit_highMem.bash /n/scratch3/users/s/sez10/TEDDY/samples_to_redo_june26.txt /n/scratch3/users/s/sez10/TEDDY/sra_out /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/adapters.fa /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.bitmask /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.srprism /n/scratch3/users/s/sez10/TEDDY/tmp 4
+## redo samples again
+sacct -S 2020-06-26 | grep "run_pipel+" | grep -v "COMPLETED" | awk '{print $1}' | while read line; do grep --text "prefetch.2.10.7: 1) Downloading" slurm-$line.out; done | awk '{print $5}' | tr -d \'. > samples_to_redo_june28.txt
+## remove folders
+while read line; do rm -r sra_out/$line; done < samples_to_redo_june28.txt
+# remove old output folders
+rm slurm*.out
+# rerun failed jobs
+/home/sez10/kostic_lab/teddy_analysis_scripts/batch_run_pipeline_megahit.bash /n/scratch3/users/s/sez10/TEDDY/samples_to_redo_june28.txt /n/scratch3/users/s/sez10/TEDDY/sra_out /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/adapters.fa /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.bitmask /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.srprism /n/scratch3/users/s/sez10/TEDDY/tmp 4
+## get failed jobs again
+sacct -S 2020-06-28 | grep "run_pipel+" | grep -v "COMPLETED" | awk '{print $1}' | while read line; do grep --text "prefetch.2.10.7: 1) Downloading" slurm-$line.out; done | awk '{print $5}' | tr -d \'. > samples_to_redo_june29.txt
+## remove folders
+while read line; do rm -r sra_out/$line; done < samples_to_redo_june29.txt
+# remove old output folders
+rm slurm*.out
+# rerun failed jobs
+/home/sez10/kostic_lab/teddy_analysis_scripts/batch_run_pipeline_megahit_highMem.bash /n/scratch3/users/s/sez10/TEDDY/samples_to_redo_june29.txt /n/scratch3/users/s/sez10/TEDDY/sra_out /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/adapters.fa /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.bitmask /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.srprism /n/scratch3/users/s/sez10/TEDDY/tmp 4
+
+```
+
+```{r}
+# get next thousand samples
+
+### get lines 3,001 to 4,000
+all_sra_data = read.table("/n/scratch3/users/b/btt5/TEDDY/allsradata",header=F)
+all_sra_data_1K <- all_sra_data[3001:4000,1]
+write.table(all_sra_data_1K,file="/home/sez10/kostic_lab/teddy_analysis_scripts/sra_3Kto4K.txt",quote=F,col.names=F,row.names=F)
+
+```
+
+```{bash}
+# run pipeline on samples 3,001 to 4,000
+/home/sez10/kostic_lab/teddy_analysis_scripts/batch_run_pipeline_megahit.bash /home/sez10/kostic_lab/teddy_analysis_scripts/sra_3Kto4K.txt /n/scratch3/users/s/sez10/TEDDY/sra_out /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/adapters.fa /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.bitmask /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.srprism /n/scratch3/users/s/sez10/TEDDY/tmp 4
+# get failed samples
+sacct -S 2020-07-02 | grep "run_pipel+" | grep -v "COMPLETED" | awk '{print $1}' | while read line; do grep --text "prefetch.2.10.7: 1) Downloading" slurm-$line.out; done | awk '{print $5}' | tr -d \'. > samples_to_redo_july3.txt
+## remove folders
+while read line; do rm -r sra_out/$line; done < samples_to_redo_july3.txt
+# remove old output folders
+rm slurm*.out
+# rerun failed jobs
+/home/sez10/kostic_lab/teddy_analysis_scripts/batch_run_pipeline_megahit_highMem.bash /n/scratch3/users/s/sez10/TEDDY/samples_to_redo_july3.txt /n/scratch3/users/s/sez10/TEDDY/sra_out /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/adapters.fa /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.bitmask /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.srprism /n/scratch3/users/s/sez10/TEDDY/tmp 4
+
+```
+
+```{r}
+## get next several rounds of samples
+all_sra_data = read.table("/n/scratch3/users/b/btt5/TEDDY/allsradata",header=F)
+all_sra_data_4Kto6K <- all_sra_data[4001:6000,1]
+all_sra_data_6Kto8K <- all_sra_data[6001:8000,1]
+all_sra_data_8Kto10K <- all_sra_data[8001:10000,1]
+all_sra_data_10Kto12K <- all_sra_data[10001:12000,1]
+all_sra_data_12KtoEnd <- all_sra_data[12001:13162,1]
+
+write.table(all_sra_data_4Kto6K,file="/home/sez10/kostic_lab/teddy_analysis_scripts/sra_4Kto6K.txt",quote=F,col.names=F,row.names=F)
+write.table(all_sra_data_6Kto8K,file="/home/sez10/kostic_lab/teddy_analysis_scripts/sra_6Kto8K.txt",quote=F,col.names=F,row.names=F)
+write.table(all_sra_data_8Kto10K,file="/home/sez10/kostic_lab/teddy_analysis_scripts/sra_8Kto10K.txt",quote=F,col.names=F,row.names=F)
+write.table(all_sra_data_10Kto12K,file="/home/sez10/kostic_lab/teddy_analysis_scripts/sra_10Kto12K.txt",quote=F,col.names=F,row.names=F)
+write.table(all_sra_data_12KtoEnd,file="/home/sez10/kostic_lab/teddy_analysis_scripts/sra_12KtoEND.txt",quote=F,col.names=F,row.names=F)
+
+```
+
+```{bash}
+# run 4K to 6K adk9
+/home/sez10/kostic_lab/teddy_analysis_scripts/batch_run_pipeline_megahit.bash /home/sez10/kostic_lab/teddy_analysis_scripts/sra_4Kto6K.txt /n/scratch3/users/s/sez10/TEDDY/sra_out /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/adapters.fa /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.bitmask /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.srprism /n/scratch3/users/s/sez10/TEDDY/tmp 4
+# run 6K to 8K valen
+/home/sez10/kostic_lab/teddy_analysis_scripts/batch_run_pipeline_megahit.bash /home/sez10/kostic_lab/teddy_analysis_scripts/sra_6Kto8K.txt /n/scratch3/users/s/sez10/TEDDY/sra_out /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/adapters.fa /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.bitmask /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.srprism /n/scratch3/users/s/sez10/TEDDY/tmp 4
+# run 8K to 10K sez10
+/home/sez10/kostic_lab/teddy_analysis_scripts/batch_run_pipeline_megahit.bash /home/sez10/kostic_lab/teddy_analysis_scripts/sra_8Kto10K.txt /n/scratch3/users/s/sez10/TEDDY/sra_out /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/adapters.fa /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.bitmask /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.srprism /n/scratch3/users/s/sez10/TEDDY/tmp 4
+# run 10K to 12K loc
+/home/sez10/kostic_lab/teddy_analysis_scripts/batch_run_pipeline_megahit.bash /home/sez10/kostic_lab/teddy_analysis_scripts/sra_10Kto12K.txt /n/scratch3/users/s/sez10/TEDDY/sra_out /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/adapters.fa /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.bitmask /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.srprism /n/scratch3/users/s/sez10/TEDDY/tmp 4
+# run 12K to end chirag
+/home/sez10/kostic_lab/teddy_analysis_scripts/batch_run_pipeline_megahit.bash /home/sez10/kostic_lab/teddy_analysis_scripts/sra_12KtoEND.txt /n/scratch3/users/s/sez10/TEDDY/sra_out /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/adapters.fa /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.bitmask /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.srprism /n/scratch3/users/s/sez10/TEDDY/tmp 4
+
+```
+
+```{bash}
+## jobs for Valen's account. # get files to redo
+sacct -S 2020-07-08 | grep "run_pipel+" | grep -v "COMPLETED" | awk '{print $1}' | while read line; do grep --text "prefetch.2.10.7: 1) Downloading" slurm-$line.out; done | awk '{print $5}' | tr -d \'. > samples_to_redo_vnl3_july12.txt
+## remove folders
+while read line; do rm -r /n/scratch3/users/s/sez10/TEDDY/sra_out/$line; done < samples_to_redo_vnl3_july12.txt
+# remove old output folders
+rm slurm*.out
+# rerun failed jobs
+/home/sez10/kostic_lab/teddy_analysis_scripts/batch_run_pipeline_megahit.bash /home/vnl3/samples_to_redo_vnl3_july12.txt /n/scratch3/users/v/vnl3/TEDDY/sra_out /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/adapters.fa /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.bitmask /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.srprism /n/scratch3/users/v/vnl3/TEDDY/tmp 4
+### redo jobs for Valen's account again
+sacct -S 2020-07-12 | grep "run_pipel+" | grep -v "COMPLETED" | awk '{print $1}' | while read line; do grep --text "prefetch.2.10.7: 1) Downloading" slurm-$line.out; done | awk '{print $5}' | tr -d \'. > samples_to_redo_vnl3_july13.txt
+## remove folders
+while read line; do rm -r /n/scratch3/users/v/vnl3/TEDDY/sra_out/$line; done < samples_to_redo_vnl3_july13.txt
+# remove old output folders
+rm slurm*.out
+# rerun failed jobs with higher memory
+/home/sez10/kostic_lab/teddy_analysis_scripts/batch_run_pipeline_megahit_highMem.bash /home/vnl3/samples_to_redo_vnl3_july13.txt /n/scratch3/users/v/vnl3/TEDDY/sra_out /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/adapters.fa /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.bitmask /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.srprism /n/scratch3/users/v/vnl3/TEDDY/tmp 4
+
+## Braden sent new jobs on July 13th. lets see how they did
+sacct -S 2020-07-13 | grep "run_pipel+" | grep -v "COMPLETED" | awk '{print $1}' | while read line; do grep --text "prefetch.2.10.7: 1) Downloading" slurm-$line.out; done | awk '{print $5}' | tr -d \'. > samples_to_redo_vnl3_july16.txt
+while read line; do rm -r /n/scratch3/users/v/vnl3/TEDDY/sra_out/$line; done < samples_to_redo_vnl3_july16.txt
+# remove old output folders
+rm slurm*.out
+# rerun failed jobs with higher memory. done on july 16. dir is /home/vnl3
+/home/sez10/kostic_lab/teddy_analysis_scripts/batch_run_pipeline_megahit_highMem.bash /home/vnl3/samples_to_redo_vnl3_july16.txt /n/scratch3/users/v/vnl3/TEDDY/sra_out /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/adapters.fa /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.bitmask /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.srprism /n/scratch3/users/v/vnl3/TEDDY/tmp 4
+
+### now run another batch on Valen's account. also done on July 16th
+/home/sez10/kostic_lab/teddy_analysis_scripts/batch_run_pipeline_megahit.bash /home/sez10/kostic_lab/teddy_analysis_scripts/sra_10Kto12K.txt /n/scratch3/users/v/vnl3/TEDDY/sra_out /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/adapters.fa /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.bitmask /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.srprism /n/scratch3/users/s/sez10/TEDDY/tmp 4
+## get failed jobs
+sacct -S 2020-07-16 | grep "run_pipel+" | grep -v "COMPLETED" | awk '{print $1}' | while read line; do grep --text "prefetch.2.10.7: 1) Downloading" slurm-$line.out; done | awk '{print $5}' | tr -d \'. > samples_to_redo_vnl3_july18.txt
+while read line; do rm -r /n/scratch3/users/v/vnl3/TEDDY/sra_out/$line; done < samples_to_redo_vnl3_july18.txt
+# remove old output folders
+rm slurm*.out
+# rerun failed jobs with higher memory. done on july 18. dir is /home/vnl3
+/home/sez10/kostic_lab/teddy_analysis_scripts/batch_run_pipeline_megahit_highMem.bash /home/vnl3/samples_to_redo_vnl3_july18.txt /n/scratch3/users/s/sez10/TEDDY/sra_out /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/adapters.fa /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.bitmask /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.srprism /n/scratch3/users/v/vnl3/TEDDY/tmp 4
+### check how jobs did
+sacct -S 2020-07-18 | grep "run_pipel+" | grep -v "COMPLETED" | awk '{print $1}' | while read line; do grep --text "prefetch.2.10.7: 1) Downloading" slurm-$line.out; done | awk '{print $5}' | tr -d \'. > samples_to_redo_vnl3_july19.txt
+while read line; do rm -r /n/scratch3/users/s/sez10/TEDDY/sra_out/$line; done < samples_to_redo_vnl3_july19.txt
+# remove old output folders
+rm slurm*.out
+# rerun failed jobs with higher memory. done on july 19. dir is /home/vnl3
+/home/sez10/kostic_lab/teddy_analysis_scripts/batch_run_pipeline_megahit_highMem.bash /home/vnl3/samples_to_redo_vnl3_july19.txt /n/scratch3/users/s/sez10/TEDDY/sra_out /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/adapters.fa /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.bitmask /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.srprism /n/scratch3/users/v/vnl3/TEDDY/tmp 4
+
+
+#### now run last set of 2000 jobs. run on july 19th
+/home/sez10/kostic_lab/teddy_analysis_scripts/batch_run_pipeline_megahit.bash /home/sez10/kostic_lab/teddy_analysis_scripts/sra_8Kto10K.txt /n/scratch3/users/s/sez10/TEDDY/sra_out /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/adapters.fa /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.bitmask /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.srprism /n/scratch3/users/s/sez10/TEDDY/tmp 4
+### check how jobs did
+sacct -S 2020-07-19 | grep "run_pipel+" | grep -v "COMPLETED" | awk '{print $1}' | while read line; do grep --text "prefetch.2.10.7: 1) Downloading" slurm-$line.out; done | awk '{print $5}' | tr -d \'. > samples_to_redo_vnl3_july20.txt
+# remove samples that didnt work
+while read line; do rm -r /n/scratch3/users/s/sez10/TEDDY/sra_out/$line; done < samples_to_redo_vnl3_july20.txt
+# remove output files
+rm slurm*.out
+### rerun samples. store on Alex's account since he has plenty of room. start on July 23rd. at /home/vnl3
+/home/sez10/kostic_lab/teddy_analysis_scripts/batch_run_pipeline_megahit.bash /home/vnl3/samples_to_redo_vnl3_july20.txt /n/scratch3/users/a/adk9/TEDDY/sra /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/adapters.fa /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.bitmask /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.srprism /n/scratch3/users/a/adk9/TEDDY/tmp 4
+### check how jobs did
+sacct -S 2020-07-23 | grep "run_pipel+" | grep -v "COMPLETED" | awk '{print $1}' | while read line; do grep --text "prefetch.2.10.7: 1) Downloading" slurm-$line.out; done | awk '{print $5}' | tr -d \'. > samples_to_redo_vnl3_july23.txt
+# remove samples that didnt work
+while read line; do rm -r /n/scratch3/users/a/adk9/TEDDY/sra/$line; done < samples_to_redo_vnl3_july23.txt
+# remove output files
+rm slurm*.out
+### rerun samples. july 25
+/home/sez10/kostic_lab/teddy_analysis_scripts/batch_run_pipeline_megahit_highMem.bash /home/vnl3/samples_to_redo_vnl3_july23.txt /n/scratch3/users/a/adk9/TEDDY/sra /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/adapters.fa /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.bitmask /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.srprism /n/scratch3/users/a/adk9/TEDDY/tmp 4
+### check how jobs did
+sacct -S 2020-07-25 | grep "run_pipel+" | grep -v "COMPLETED" | awk '{print $1}' | while read line; do grep --text "prefetch.2.10.7: 1) Downloading" slurm-$line.out; done | awk '{print $5}' | tr -d \'. > samples_to_redo_vnl3_july25.txt
+# remove samples that didnt work
+while read line; do rm -r /n/scratch3/users/a/adk9/TEDDY/sra/$line; done < samples_to_redo_vnl3_july25.txt
+# remove output files
+rm slurm*.out
+### now redo last 71 files. run on july 26th in /home/vnl3
+/home/sez10/kostic_lab/teddy_analysis_scripts/batch_run_pipeline_megahit.bash /n/scratch3/users/s/sez10/TEDDY/teddy_samples_redo_july26.txt /n/scratch3/users/a/adk9/TEDDY/sra /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/adapters.fa /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.bitmask /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.srprism /n/scratch3/users/a/adk9/TEDDY/tmp 4
+### check how jobs did
+sacct -S 2020-07-26 | grep "run_pipel+" | grep -v "COMPLETED" | awk '{print $1}' | while read line; do grep --text "prefetch.2.10.7: 1) Downloading" slurm-$line.out; done | awk '{print $5}' | tr -d \'. > samples_to_redo_vnl3_july27.txt
+# remove samples that didnt work
+while read line; do rm -r /n/scratch3/users/a/adk9/TEDDY/sra/$line; done < samples_to_redo_vnl3_july27.txt
+# remove output files
+rm slurm*.out
+## rerun last set of samples
+/home/sez10/kostic_lab/teddy_analysis_scripts/batch_run_pipeline_megahit_highMem.bash /home/vnl3/samples_to_redo_vnl3_july27.txt /n/scratch3/users/a/adk9/TEDDY/sra /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/adapters.fa /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.bitmask /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.srprism /n/scratch3/users/a/adk9/TEDDY/tmp 4
+# see how jobs did. 2 failed but all done.
+sacct -S 2020-07-27 | grep "run_pipel+" | grep -v "COMPLETED" | awk '{print $1}' | while read line; do grep --text "prefetch.2.10.7: 1) Downloading" slurm-$line.out; done | awk '{print $5}' | tr -d \'. > samples_to_redo_vnl3_july28.txt
+
+### Braden did QC and found failed jobs. rerun these jobs
+
+# get samples to redo
+cat /n/scratch3/users/a/adk9/TEDDY/failed | while read line; do basename $(dirname $line); done > /home/sez10/kostic_lab/teddy_analysis_scripts/files_redo_august12_2020.txt
+# remove the folders
+cat /n/scratch3/users/a/adk9/TEDDY/failed | while read line; do rm -r $(dirname $line); done
+
+## run jobs. store results in alex's directory. running from /n/scratch3/users/s/sez10/TEDDY. run on August 12th
+/home/sez10/kostic_lab/teddy_analysis_scripts/batch_run_pipeline_megahit.bash /home/sez10/kostic_lab/teddy_analysis_scripts/files_redo_august12_2020.txt /n/scratch3/users/a/adk9/TEDDY/sra /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/adapters.fa /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.bitmask /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.srprism /n/scratch3/users/a/adk9/TEDDY/tmp 4
+# see how jobs did. 
+sacct -S 2020-08-12 | grep "run_pipel+" | grep -v "COMPLETED" | awk '{print $1}' | while read line; do grep --text "prefetch.2.10.7: 1) Downloading" slurm-$line.out; done | awk '{print $5}' | tr -d \'. > samples_to_redo_sez10_august12.txt
+# remove samples that didnt work
+while read line; do rm -r /n/scratch3/users/a/adk9/TEDDY/sra/$line; done < samples_to_redo_sez10_august12.txt
+# remove output files
+rm slurm*.out
+## rerun last set of samples
+/home/sez10/kostic_lab/teddy_analysis_scripts/batch_run_pipeline_megahit.bash /n/scratch3/users/s/sez10/TEDDY/samples_to_redo_sez10_august12.txt /n/scratch3/users/a/adk9/TEDDY/sra /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/adapters.fa /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.bitmask /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.srprism /n/scratch3/users/a/adk9/TEDDY/tmp 4
+## see how jobs did
+sacct -S 2020-08-13 | grep "run_pipel+" | grep -v "COMPLETED" | awk '{print $1}' | while read line; do grep --text "prefetch.2.10.7: 1) Downloading" slurm-$line.out; done | awk '{print $5}' | tr -d \'. > samples_to_redo_sez10_august13.txt
+# remove samples that didnt work
+while read line; do rm -r /n/scratch3/users/a/adk9/TEDDY/sra/$line; done < samples_to_redo_sez10_august13.txt
+# remove output files
+rm slurm*.out
+# rerun
+/home/sez10/kostic_lab/teddy_analysis_scripts/batch_run_pipeline_megahit_highMem.bash /n/scratch3/users/s/sez10/TEDDY/samples_to_redo_sez10_august13.txt /n/scratch3/users/a/adk9/TEDDY/sra /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/adapters.fa /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.bitmask /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.srprism /n/scratch3/users/a/adk9/TEDDY/tmp 4
+## see how jobs did
+sacct -S 2020-08-13 | grep "run_pipel+" | grep -v "COMPLETED" | awk '{print $1}' | while read line; do grep --text "prefetch.2.10.7: 1) Downloading" slurm-$line.out; done | awk '{print $5}' | tr -d \'. > samples_to_redo_sez10_august13_part2.txt
+# remove samples that didnt work
+while read line; do rm -r /n/scratch3/users/a/adk9/TEDDY/sra/$line; done < samples_to_redo_sez10_august13_part2.txt
+# remove output files
+rm slurm*.out
+# rerun
+/home/sez10/kostic_lab/teddy_analysis_scripts/batch_run_pipeline_megahit_highMem.bash /n/scratch3/users/s/sez10/TEDDY/samples_to_redo_sez10_august13_part2.txt /n/scratch3/users/a/adk9/TEDDY/sra /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/adapters.fa /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.bitmask /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.srprism /n/scratch3/users/a/adk9/TEDDY/tmp 4
+
+#### get new directory where files are
+
+cat /home/sez10/kostic_lab/teddy_analysis_scripts/files_redo_august12_2020.txt | while read line; do echo "/n/scratch3/users/a/adk9/TEDDY/sra/"${line}; done > /n/scratch3/users/s/sez10/TEDDY/samples_for_Braden_to_qc_august17.txt
+```
+
+```{bash}
+## first remove failed samples on Alex's account. they all failed to remove everything
+while read line; do rm -r /n/scratch3/users/s/sez10/TEDDY/sra_out/$line; done < /home/sez10/kostic_lab/teddy_analysis_scripts/sra_4Kto6K.txt
+
+## now run alex's but switch write directory to /n/scratch3/users/v/vnl3/TEDDY/sra_out. redoing jobs on July 12th. running jobs from dir /n/scratch3/users/a/adk9/TEDDY
+/home/sez10/kostic_lab/teddy_analysis_scripts/batch_run_pipeline_megahit.bash /home/sez10/kostic_lab/teddy_analysis_scripts/sra_4Kto6K.txt /n/scratch3/users/v/vnl3/TEDDY/sra_out /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/adapters.fa /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.bitmask /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.srprism /n/scratch3/users/s/sez10/TEDDY/tmp 4
+### get failed jobs on Alex's account
+sacct -S 2020-07-12 | grep "run_pipel+" | grep -v "COMPLETED" | awk '{print $1}' | while read line; do grep --text "prefetch.2.10.7: 1) Downloading" slurm-$line.out; done | awk '{print $5}' | tr -d \'. > samples_to_redo_vnl3_july14.txt
+## remove folders
+while read line; do rm -r /n/scratch3/users/v/vnl3/TEDDY/sra_out/$line; done < samples_to_redo_vnl3_july14.txt
+# remove old output folders
+rm slurm*.out
+# rerun failed jobs with higher memory. on july 14th
+/home/sez10/kostic_lab/teddy_analysis_scripts/batch_run_pipeline_megahit_highMem.bash /n/scratch3/users/a/adk9/TEDDY/samples_to_redo_vnl3_july14.txt /n/scratch3/users/v/vnl3/TEDDY/sra_out /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/adapters.fa /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.bitmask /home/sez10/kostic_lab/gene_catalogue/files_for_gene_catalogue/GRCh38/GRCh38.primary_assembly.genome.srprism /n/scratch3/users/v/vnl3/TEDDY/tmp 4
+# lets see how these jobs did. All completed YAY!
+sacct -S 2020-07-14 | grep "run_pipel+" | grep -v "COMPLETED" | awk '{print $1}' | while read line; do grep --text "prefetch.2.10.7: 1) Downloading" slurm-$line.out; done | awk '{print $5}' | tr -d \'. > samples_to_redo_adk9_july16.txt
+
+### one prokka output failed. so lets rerun prokka
+sbatch /n/scratch3/users/s/sez10/TEDDY/run_prokka_SRR7565545.bash
+```
+
+```{r}
+# I think we are all done. check to see how many samples we missed.
+
+adk9_files = list.files("/n/scratch3/users/a/adk9/TEDDY/sra",pattern = "_prokka_out.tar.gz",recursive = T)
+vnl3_files = list.files("/n/scratch3/users/v/vnl3/TEDDY/sra_out",pattern = "_prokka_out.tar.gz",recursive = T)
+sez10_files = list.files("/n/scratch3/users/s/sez10/TEDDY/sra_out",pattern = "_prokka_out.tar.gz",recursive = T)
+
+all_files = c(adk9_files,vnl3_files,sez10_files)
+all_samples = dirname(all_files)
+
+all_sra_data = read.table("/n/scratch3/users/b/btt5/TEDDY/allsradata",header=F)
+all_sra_data <- all_sra_data[,1]
+
+files_left = all_sra_data[-match(all_samples,all_sra_data)]
+
+write.table(files_left,file="/n/scratch3/users/s/sez10/TEDDY/teddy_samples_redo_july26.txt",quote=F,col.name=F,row.names=F)
+### get location of all prokka output folders
+
+adk9_files_full_path = list.files("/n/scratch3/users/a/adk9/TEDDY/sra",pattern = "_prokka_out.tar.gz",recursive = T,full.names = T)
+vnl3_files_full_path = list.files("/n/scratch3/users/v/vnl3/TEDDY/sra_out",pattern = "_prokka_out.tar.gz",recursive = T,full.names = T)
+sez10_files_full_path = list.files("/n/scratch3/users/s/sez10/TEDDY/sra_out",pattern = "_prokka_out.tar.gz",recursive = T,full.names=T)
+all_files_with_paths = c(adk9_files_full_path,vnl3_files_full_path,sez10_files_full_path)
+write.table(all_files_with_paths,file="/n/scratch3/users/s/sez10/TEDDY/teddy_prokka_output_locs.txt",quote=F,col.names=F,row.names=F)
+
+### get list of human fastq files for diamond
+#adk9_files_full_path_fastq = list.files("/n/scratch3/users/a/adk9/TEDDY/sra",pattern = "_human_free.fastq.gz",recursive = T,full.names = T)
+#vnl3_files_full_path_fastq = list.files("/n/scratch3/users/v/vnl3/TEDDY/sra_out",pattern = "_human_free.fastq.gz",recursive = T,full.names = T)
+#sez10_files_full_path_fastq = list.files("/n/scratch3/users/s/sez10/TEDDY/sra_out",pattern = "_human_free.fastq.gz",recursive = T,full.names=T)
+#all_files_with_paths_fastq = c(adk9_files_full_path_fastq,vnl3_files_full_path_fastq,sez10_files_full_path_fastq)
+
+tedd_qc_df = read.table("/n/scratch3/users/a/adk9/TEDDY/qc_data_aug17",header=F,sep="\t")
+teddy_all_locs = read.table("/n/scratch3/users/a/adk9/TEDDY/all_locs",header=F)
+teddy_samz_files = read.table("/n/scratch3/users/s/sez10/TEDDY/teddy_prokka_output_locs.txt",header=F)
+all.equal(sort(tedd_qc_df[,2]),sort(basename(teddy_all_locs[,1])))
+fastq_files_TEDDY = gsub("_prokka_out","_human_free.fastq.gz",teddy_all_locs[,1])
+# remove first character
+fastq_files_TEDDY = substr(fastq_files_TEDDY, 2, nchar(fastq_files_TEDDY))
+
+# get files that don't exits
+fastq_files_TEDDY_dontexist = fastq_files_TEDDY[!file.exists(fastq_files_TEDDY)] # all these exist. just have .gz removed
+# turns out these files are just unzipped. remove the .gz from them.
+for(x in 1:length(fastq_files_TEDDY_dontexist)) {
+  fastq_to_trim = fastq_files_TEDDY_dontexist[x]
+  fastq_files_TEDDY = gsub(fastq_to_trim,substr(fastq_to_trim,1,nchar(fastq_to_trim)-3),fastq_files_TEDDY)
+}
+
+table(file.exists(fastq_files_TEDDY)) # 13159 TRUE
+
+write.table(fastq_files_TEDDY,file="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/fastq_inputs.txt",col.names=F,row.names=F,quote=F)
+
+
+### get list of tar.gz files
+tar.gz_files_TEDDY = paste(teddy_all_locs[,1],".tar.gz",sep="")
+tar.gz_files_TEDDY = substr(tar.gz_files_TEDDY, 2, nchar(tar.gz_files_TEDDY))
+write.table(tar.gz_files_TEDDY,file="/n/data1/joslin/icrb/kostic/szimmerman/transfer_data_to_standby/TEDDY_assemblies_zipped.txt",quote=F,col.names=F,row.names=F)
+```
+
+```{bash}
+## transfer fastq files to dropbox for safe keeping
+
+sbatch --mem=5G -p long -c 1 -t 14-00:00 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/transfer_TEDDY_fastq_to_dropbox.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/fastq_inputs.txt
+
+# get list of transferred fastq files
+rclone ls mydropbox:Kostic_Lab/datasets/TEDDY/fastqFiles/ > transffered_to_rclone_teddy_fastq_files.txt
+```
+
+```{r}
+## find out which ones I still have to transfer
+all_teddy_fastq = read.table("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/fastq_inputs.txt",header=F)
+all_teddy_fastq = all_teddy_fastq[,1]
+rclone_teddy_fastq = read.table("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/transffered_to_rclone_teddy_fastq_files.txt",header=F)
+rclone_teddy_fastq = rclone_teddy_fastq[,2]
+
+teddy_done = which(basename(all_teddy_fastq)%in%rclone_teddy_fastq)
+# I also want to redo the most recent transfer in case it timed out and did not transfer correctly
+laste_one_done = all_teddy_fastq[max(teddy_done)]
+
+teddy_not_transffered = all_teddy_fastq[!basename(all_teddy_fastq)%in%rclone_teddy_fastq]
+teddy_not_transffered = c(laste_one_done,teddy_not_transffered)
+write.table(teddy_not_transffered,file="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/transffered_to_rclone_teddy_fastq_files_part2.txt",quote=F,col.names=F,row.names=F)
+```
+
+Find out what I have to transfer left. First get list of files transfered 
+
+```{bash}
+conda activate rclone
+rclone ls mydropbox:Kostic_Lab/datasets/TEDDY/fastqFiles/ > transffered_to_rclone_teddy_fastq_files_as_of_Nov10_2020.txt
+```
+
+Now see how many files are left to download. also check if file sizes match up
+```{r}
+### find out what I have to transfer left
+all_teddy_fastq = read.table("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/fastq_inputs.txt",header=F)
+all_teddy_fastq = all_teddy_fastq[,1]
+rclone_teddy_fastq_withsize = read.table("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/transffered_to_rclone_teddy_fastq_files_as_of_Nov10_2020.txt",header=F)
+rclone_teddy_fastq = rclone_teddy_fastq_withsize[,2]
+teddy_done = which(basename(all_teddy_fastq)%in%rclone_teddy_fastq)
+teddy_not_transffered = all_teddy_fastq[!basename(all_teddy_fastq)%in%rclone_teddy_fastq] # all done!
+
+# now lets make sure file sizes are the same
+file_teddy_info = file.info(all_teddy_fastq)
+rclone_teddy_fastq_withsize_ordered = rclone_teddy_fastq_withsize[match(basename(rownames(file_teddy_info)),rclone_teddy_fastq_withsize[,2]),]
+
+all.equal(rclone_teddy_fastq_withsize_ordered[,1],file_teddy_info$size) # TRUE
+```
+
+
+```{bash}
+# transfer rest of files
+sbatch --mem=5G -p priority -c 1 -t 14-00:00 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/transfer_TEDDY_fastq_to_dropbox.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/transffered_to_rclone_teddy_fastq_files_part2.txt
+
+```
+

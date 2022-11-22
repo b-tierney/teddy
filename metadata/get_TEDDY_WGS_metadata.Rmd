@@ -1,0 +1,40 @@
+---
+title: "get_TEDDY_WGS_metadata"
+author: "Sam Zimmerman"
+date: "9/27/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Combine GRS2 scores with the rest of my data
+
+```{r}
+
+# read in GRS scores
+grs_scores = read.csv("~/Dropbox (HMS)/Kostic_Lab/datasets/TEDDY/metagenome_genotype_analysis/calculated_grs_scores.csv")
+
+## next read in sample ID info
+sample_info = read.table("~/Dropbox (HMS)/TEDDY/teddy_niddk_clinical_072721/dbgap_data/dbGaP-20109/phs001442.v2.pht008328.v2.p2.TEDDY_Cohort_Sample.MULTI.txt.gz",sep="\t",header=T)
+
+## match GRS scores to the sample info
+grs_scores_ordered = grs_scores[match(sample_info$subject_id,grs_scores$FID),]
+# add grs scores
+sample_info$GRS_score = grs_scores_ordered$grs_score_list
+## now combine with metadata from other studies
+multi_study_metadata = read.csv("~/Dropbox (HMS)/TEDDY/22417/dbgap_data_merged_with_niddk_data.tsv")
+
+sample_info_ordered = sample_info[match(multi_study_metadata$BioSample,sample_info$BioSample.Accession),]
+# add grscore to multi study metadata
+multi_study_metadata$GRS_score = sample_info_ordered$GRS_score
+
+### now combine with all the clinical metadata
+teddy_clinical_data = read.csv("~/Dropbox (HMS)/Kostic_Lab/datasets/TEDDY/analysis/teddy_metadata_20190821.csv")
+multi_study_metadata_ordered = multi_study_metadata[match(teddy_clinical_data$Run,multi_study_metadata$Run),]
+## add GRS score to clinical data
+teddy_clinical_data$GRS_score = multi_study_metadata_ordered$GRS_score
+write.csv(teddy_clinical_data,"~/Dropbox (HMS)/Kostic_Lab/datasets/TEDDY/analysis/teddy_metadata_20190821_with_GRS2.csv",row.names=F)
+```
+

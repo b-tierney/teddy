@@ -1,0 +1,1823 @@
+---
+title: "process_TEDDY_for_voe"
+author: "Sam Zimmerman"
+date: "3/16/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{bash}
+#Analysis steps post alignment with bowtie2
+
+#Step 1. Normalize genes in each sample by total number of aligned reads in a sample 
+
+# location_file is a file where each line is the name of a gz file containing the number of reads that align to each gene. one line/file per sample.
+
+cd /n/scratch3/users/a/adk9/_RESTORE/adk9/TEDDY/alignment_output
+
+normalize_teddy.py  <location_file>
+
+# e.g.
+#normalize_teddy.py SRR7559403_alignment_data.tsv.gz
+```
+
+#Step 2. extract gene names using quick python
+
+```{python}
+
+cd /n/scratch3/users/a/adk9/_RESTORE/adk9/TEDDY/alignment_output
+
+data = pd.read_csv("SRR7556756_alignment_data.tsv",sep='\t',index_col=0,header=None)
+geneNames=data.index
+geneNames_df = pd.DataFrame(geneNames.values,columns=['genename'])
+geneNames_df.to_csv('gene-names_alignment_data_normalized.tsv',index=False)
+```
+
+
+#Step 3. divide each normalized abundnce file into several files of 50000 genes per file. will create new folders with file in them in current working directory
+
+```{bash}
+cd /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/normalized_alignments
+
+#./parse_normalized_abundance_data.sh
+./parse_normalized_abundance_data_other_path.sh
+```
+
+#Step 4. also split gene names
+
+```{bash}
+
+mkdir gene-names_batched
+split -l 50000 /n/scratch3/users/a/adk9/TEDDY/alignment_output/normalized_data/gene-names_alignment_data_normalized.tsv gene-names_batched/gene_names_
+
+```
+
+#Step 5. merge normalized data. so we have Run by gene matrices. 
+
+```{bash}
+
+mkdir parsed_data
+mkdir merge_noramized_data_input_files
+ls *_locs | grep -v "all_batch_locs" | grep -v "gene_name_locs" > merge_noramized_data_input_files/all_locs
+cd merge_noramized_data_input_files
+split -l 5 all_locs all_locs_
+cd ..
+for x in merge_noramized_data_input_files/all_locs_* 
+do
+sbatch -c 1 -t 0-11:59 -p short --mem=20G merge_normalized_data_batch.bash ${x}
+done 
+# rerun one that timed out
+sbatch -c 1 -t 0-11:59 -p short --mem=20G merge_normalized_data_batch.bash merge_noramized_data_input_files/all_locs_iv_only
+
+sbatch -c 1 -t 0-11:59 -p short --mem=20G merge_normalized_data_batch.bash merge_noramized_data_input_files/all_locs_mc_only
+
+```
+
+# step 6 and 7 run code in process_teddy_metadatav2.R so I get the case and controls as well as mapping files of subjects to samples. Located in metadata folder of github.
+
+#step 8. average samples that belong to the same subject 
+
+#first prepare input files. uses output of process_teddy_metadatav2.R
+
+```{r}
+# first get input files
+all_files = list.files(pattern=".csv")
+abundance_files = all_files[-grep("healthy",all_files)]
+mapping_files = all_files[grepl("healthy",all_files) & grepl(".mapping.",all_files)]
+metadata_files = gsub(".mapping.csv",".csv",mapping_files)
+mapping_metadata = data.frame(metadata_files,mapping_files)
+
+df_lists = apply(mapping_metadata,1, function(myrow) {
+  metadata_file = myrow[1]
+  mapping_file = myrow[2]
+  metadata_files_rep = rep(metadata_file,length(abundance_files))
+  mapping_files_rep = rep(mapping_file,length(abundance_files))
+  my_df = data.frame(abundance_files,metadata_files_rep,mapping_files_rep)
+  # split into 2 pieces
+  split_point = floor(nrow(my_df)/2)
+  my_df1 = my_df[1:split_point,]
+  my_df2 = my_df[(split_point +1):nrow(my_df),]
+  # this extra column is just so I don't mess with the metadata since I am doing things in parallel
+  my_df1$metadata_suffix = 1
+  my_df2$metadata_suffix = 2
+  my_label1 = gsub(".csv","_input_file_1.tsv",metadata_file)
+  my_label2 = gsub(".csv","_input_file_2.tsv",metadata_file)
+  write.table(my_df1,file=paste("prep_voe_input_files/",my_label1,sep=""),sep="\t",col.names=FALSE,row.names=FALSE,quote=FALSE)
+  write.table(my_df2,file=paste("prep_voe_input_files/",my_label2,sep=""),sep="\t",col.names=FALSE,row.names=FALSE,quote=FALSE)
+  return(my_df)
+})
+
+```
+
+#Prepare input files for other associations besides pre-t1d
+
+```{r}
+# first get input files
+all_files = list.files(pattern=".csv")
+abundance_files = all_files[-grep("healthy",all_files)]
+mapping_files = all_files[grepl("healthy",all_files) & grepl(".mapping.",all_files)]
+mapping_files = mapping_files[-grep("healthy_pre-t1d",mapping_files)]
+metadata_files = gsub(".mapping.csv",".csv",mapping_files)
+mapping_metadata = data.frame(metadata_files,mapping_files)
+
+df_lists = apply(mapping_metadata,1, function(myrow) {
+  metadata_file = myrow[1]
+  mapping_file = myrow[2]
+  metadata_files_rep = rep(metadata_file,length(abundance_files))
+  mapping_files_rep = rep(mapping_file,length(abundance_files))
+  my_df = data.frame(abundance_files,metadata_files_rep,mapping_files_rep)
+  # split into 2 pieces
+  split_point = floor(nrow(my_df)/2)
+  my_df1 = my_df[1:split_point,]
+  my_df2 = my_df[(split_point +1):nrow(my_df),]
+  # this extra column is just so I don't mess with the metadata since I am doing things in parallel
+  my_df1$metadata_suffix = 1
+  my_df2$metadata_suffix = 2
+  my_label1 = gsub(".csv","_input_file_1.tsv",metadata_file)
+  my_label2 = gsub(".csv","_input_file_2.tsv",metadata_file)
+  write.table(my_df1,file=paste("prep_voe_input_files_antibody_associations/",my_label1,sep=""),sep="\t",col.names=FALSE,row.names=FALSE,quote=FALSE)
+  write.table(my_df2,file=paste("prep_voe_input_files_antibody_associations/",my_label2,sep=""),sep="\t",col.names=FALSE,row.names=FALSE,quote=FALSE)
+  return(my_df)
+})
+
+```
+
+
+#Now run to average samples together that are apart of the same subjects
+
+```{bash}
+cd /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/normalized_alignments/parsed_data
+for x in prep_voe_input_files/*tsv
+do
+  sbatch -c 1 -t 0-11:59 -p short --mem=50G prep_abundance_for_voe_bulk.bash ${x}
+done
+
+#sbatch -c 1 -t 0-11:59 -p short --mem=50G prep_abundance_for_voe_bulk.bash prep_voe_input_files/healthy_pre-t1d-all_HLA_input_file_1.tsv
+```
+
+#Run for antibody associations
+
+```{bash}
+cd /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/normalized_alignments/parsed_data
+for x in prep_voe_input_files_antibody_associations/*tsv
+do
+  sbatch -c 1 -t 0-11:59 -p short --mem=50G prep_abundance_for_voe_bulk.bash ${x}
+done
+```
+
+#make a file that tells you where each gene is located
+
+```{bash}
+cd /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/normalized_alignments/parsed_data
+ls *.csv | grep -v "healthy" | while read line; do awk -F ',' '{print $2,FILENAME}' ${line} | grep "genename"; done > gene_locs.txt
+gzip gene_locs.txt
+```
+
+
+#Get some stats about average expression, SD, and % of samples each gene is in
+
+```{r}
+library(dplyr)
+dependent_vars_files = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/normalized_alignments/parsed_data/healthy_pre-t1d-DR3_DR4_only",pattern=".rds",full.names = TRUE)
+dependent_vars_files = dependent_vars_files[-c(1,2)]
+#independent_variables = readRDS("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/normalized_alignments/parsed_data/healthy_pre-t1d-DR3_DR4_only/healthy_pre-t1d-DR3_DR4_only_1_metadata_filtered.rds")
+
+#colnames(independent_variables)[1]='sampleID'
+#independent_variables$sampleID = as.character(independent_variables$sampleID)
+min_val_in_array = c()
+for (dependent_varfile in dependent_vars_files) {
+  dependent_variables = readRDS(dependent_varfile)
+  temp = dependent_variables[,-match("SubjectID",colnames(dependent_variables))]
+  temp = as.matrix(temp)
+  min_nonzero_val = min(temp[temp>0])
+  if(length(min_val_in_array) == 0) {
+    min_val_in_array = min_nonzero_val
+  } else if(min_val_in_array > min_nonzero_val) {
+    min_val_in_array = min_nonzero_val
+  }
+}
+min_log_val = log(min_val_in_array)
+
+dependent_vars_files = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/normalized_alignments/parsed_data/healthy_pre-t1d-DR3_DR4_only",pattern=".rds",full.names = TRUE)
+dependent_vars_files = dependent_vars_files[-c(1,2)]
+independent_variables = readRDS("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/normalized_alignments/parsed_data/healthy_pre-t1d-DR3_DR4_only/healthy_pre-t1d-DR3_DR4_only_1_metadata_filtered.rds")
+colnames(independent_variables)[1]='sampleID'
+independent_variables$sampleID = as.character(independent_variables$sampleID)
+dataset_stats = lapply(dependent_vars_files[1:10], function(dependent_varfile) {
+  dependent_variables = readRDS(dependent_varfile)
+  dependent_variables$SubjectID = as.character(dependent_variables$SubjectID)
+  
+  independent_vars_temp = independent_variables[match(dependent_variables$SubjectID,independent_variables$sampleID),]
+  my_condition = independent_vars_temp$condition
+  
+  temp = dependent_variables[,-match("SubjectID",colnames(dependent_variables))]
+  temp = as.matrix(temp)
+  genes_to_remove = which(colSums(temp) == 0)
+  if(length(genes_to_remove) > 0) {
+    temp = temp[,-genes_to_remove]
+  }
+  temp_sum = temp + min_val_in_array
+  temp_logged = log(temp_sum_mat)
+  # get average abundance
+  avg_expression_each_gene = colMeans(temp_logged)
+  # get proportion of 0s 
+  num_0s_per_gene = apply(temp_logged,2, function(x) sum(x==min_log_val))
+  prop_0s_per_gene = num_0s_per_gene/nrow(temp_logged)
+  # calculate variance 
+  variance_per_gene = apply(temp_logged,2, var)
+  # calculate quantiles
+  quantiles_per_gene = apply(temp_logged, 2, function(x) quantile(x,c(0.25,0.5,0.75)))
+  
+  # calculate proportion in T1D patients only
+  temp_logged_t1d_subject = temp_logged[my_condition==1,]
+  num_0s_per_gene_t1d_subjects = apply(temp_logged_t1d_subject,2, function(x) sum(x==min_log_val))
+  prop_0s_per_gene_t1d_subjects = num_0s_per_gene_t1d_subjects/nrow(temp_logged_t1d_subject)
+  
+  temp_logged_healthy_subject = temp_logged[my_condition==0,]
+  num_0s_per_gene_healthy_subjects = apply(temp_logged_healthy_subject,2, function(x) sum(x==min_log_val))
+  prop_0s_per_gene_healthy_subjects = num_0s_per_gene_healthy_subjects/nrow(temp_logged_healthy_subject)
+
+stats_temp_mat = rbind(avg_expression_each_gene,variance_per_gene,prop_0s_per_gene,prop_0s_per_gene_t1d_subjects,prop_0s_per_gene_healthy_subjects,quantiles_per_gene)
+  
+  return(stats_temp_mat)
+})
+all_dataset_stats = do.call("cbind",dataset_stats)
+write.csv(all_dataset_stats,"DR3_4_all_gene_stats.tsv")
+
+
+
+# sbatch -c 1 -t 0-05:00 -p short --mem=30G scripts/get_DR3_DR4_all_timepoint_gene_stats.bash
+
+#...
+library(data.table)
+DR34_stats = fread("DR3_4_all_gene_stats.csv",header=TRUE,sep=",",data.table=FALSE)
+rownames(DR34_stats) = DR34_stats[,1]
+DR34_stats = DR34_stats[,-1]
+# read output 
+my_output = readRDS("initial_association_output/healthy_pre-t1d-DR3_DR4_only_output_test/healthy_pre-t1d-DR3_DR4_only_output_test_full_association_output_adjusted.rds")
+my_output = my_output[order(my_output$p.value),]
+
+DR34_stats_sorted = DR34_stats[,my_output$feature]
+
+proportion_0s_pergene = DR34_stats_sorted["prop_0s_per_gene",]
+proportion_0s_pergene = unlist(proportion_0s_pergene)
+jpeg("DRA3_DR4_prop0s_pval_sorted.jpeg",height=1000,width=1000)
+dotchart(proportion_0s_pergene[1:10000])
+dev.off()
+
+jpeg("DRA3_DR4_prop0s_density.jpeg",height=1000,width=1000)
+#plot(density(proportion_0s_pergene))
+hist(proportion_0s_pergene)
+dev.off()
+
+proportion_0s_t1d = DR34_stats_sorted["prop_0s_per_gene_t1d_subjects",]
+proportion_0s_t1d = unlist(proportion_0s_t1d)
+jpeg("DRA3_DR4_prop0s_t1d_pval_sorted.jpeg",height=1000,width=1000)
+dotchart(proportion_0s_t1d[1:10000])
+dev.off()
+
+jpeg("DRA3_DR4_prop0s_t1d_density.jpeg",height=1000,width=1000)
+plot(density(proportion_0s_t1d))
+dev.off()
+
+proportion_0s_healthy_pergene = DR34_stats_sorted["prop_0s_per_gene_healthy_subjects",]
+proportion_0s_healthy_pergene = unlist(proportion_0s_healthy_pergene)
+
+jpeg("DRA3_DR4_prop0s_healthy_pval_sorted.jpeg",height=1000,width=1000)
+dotchart(proportion_0s_healthy_pergene[1:10000])
+dev.off()
+
+jpeg("DRA3_DR4_prop0s_t1d_healthy.jpeg",height=1000,width=1000)
+plot(density(proportion_0s_healthy_pergene))
+dev.off()
+
+median_pergene = DR34_stats_sorted["50%",]
+median_pergene = unlist(median_pergene)
+
+jpeg("DRA3_DR4_median_pval_sorted.jpeg",height=1000,width=1000)
+dotchart(median_pergene[1:10000])
+dev.off()
+
+jpeg("DRA3_DR4_median_dist.jpeg",height=1000,width=1000)
+hist(median_pergene)
+dev.off()
+
+variance_pergene = DR34_stats_sorted["variance_per_gene",]
+variance_pergene = unlist(variance_pergene)
+
+jpeg("DRA3_DR4_variance_dist.jpeg",height=1000,width=1000)
+hist(variance_pergene)
+abline(v=c(6))
+dev.off()
+
+jpeg("DRA3_DR4_variance_pval_sorted.jpeg",height=1000,width=1000)
+dotchart(variance_pergene[1:10000])
+dev.off()
+
+mad_pergene = DR34_stats["mad_per_gene",]
+mad_pergene = unlist(mad_pergene)
+
+jpeg("DRA3_DR4_mad_distribution.jpeg",height=1000,width=1000)
+hist(mad_pergene)
+dev.off()
+
+```
+
+##Make boxplots for top genes by pvalue
+
+```{r}
+library(dplyr)
+library(ggplot2)
+dependent_vars_files = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/normalized_alignments/parsed_data/healthy_pre-t1d-DR3_DR4_only",pattern=".rds",full.names = TRUE)
+metadata = readRDS("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/normalized_alignments/parsed_data/healthy_pre-t1d-DR3_DR4_only/healthy_pre-t1d-DR3_DR4_only_1_metadata_filtered.rds")
+dependent_vars_files = dependent_vars_files[-grep("_metadata_filtered.rds",dependent_vars_files)]
+
+#min_value = readRDS("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/normalized_alignments/parsed_data/healthy_pre-t1d-DR3_DR4_only/min_val")
+
+my_output = readRDS("initial_association_output/healthy_pre-t1d-DR3_DR4_only_output_test/healthy_pre-t1d-DR3_DR4_only_output_test_full_association_output_adjusted.rds")
+my_output = my_output[order(my_output$p.value),]
+
+top_genes_by_pval = my_output$feature[1:10]
+old_top_sig_genes = "DPDLKFBF_28626"
+top_genes_by_pval = c(top_genes_by_pval,old_top_sig_genes)
+for (myfile in dependent_vars_files) {
+  my_abundance_mat = readRDS(myfile)
+  metadata_ordered = metadata[match(my_abundance_mat$SubjectID,metadata$SubjectID),]
+  my_abundance_mat = my_abundance_mat[,-match("SubjectID",colnames(my_abundance_mat))]
+  my_abundance_mat = as.matrix(my_abundance_mat)
+  min_val = min(my_abundance_mat[my_abundance_mat>0])
+  my_abundance_mat = my_abundance_mat+min_val
+  my_abundance_mat = log(my_abundance_mat)
+  are_any_topgenes_found = top_genes_by_pval%in%colnames(my_abundance_mat)
+  if(sum(are_any_topgenes_found)>0) {
+    topGenes_found = top_genes_by_pval[are_any_topgenes_found]
+    print(topGenes_found)
+    my_condition = metadata_ordered$condition
+    my_condition = as.factor(my_condition)
+    for(topgene in topGenes_found) {
+      temp_df = data.frame(value=my_abundance_mat[,topgene],condition=my_condition)
+      pdf(paste(topgene,"_DR3_DR4_output_test_boxplot.pdf",sep=""))
+      myplot = ggplot(temp_df,aes(x=condition,y=value)) + geom_boxplot() + geom_jitter()
+      print(myplot)
+      dev.off()
+    }
+  }
+}
+
+```
+
+##Now make the top boxplots when removing genes with 90% or more of samples have 0s
+
+```{r}
+library(dplyr)
+library(ggplot2)
+dependent_vars_files = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/normalized_alignments/parsed_data/healthy_pre-t1d-DR3_DR4_only",pattern=".rds",full.names = TRUE)
+metadata = readRDS("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/normalized_alignments/parsed_data/healthy_pre-t1d-DR3_DR4_only/healthy_pre-t1d-DR3_DR4_only_1_metadata_filtered.rds")
+dependent_vars_files = dependent_vars_files[-grep("_metadata_filtered.rds",dependent_vars_files)]
+
+min_value = readRDS("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/normalized_alignments/parsed_data/healthy_pre-t1d-DR3_DR4_only/min_val")
+
+my_output = readRDS("initial_association_output/healthy_pre-t1d-DR3_DR4_only_output_ten_perc_cutoff/healthy_pre-t1d-DR3_DR4_only_output_ten_perc_cutoff_full_association_output_adjusted.rds")
+my_output = my_output[order(my_output$p.value),]
+
+top_genes_by_pval = my_output$feature[1:10]
+old_top_sig_genes = "DPDLKFBF_28626"
+top_genes_by_pval = c(top_genes_by_pval,old_top_sig_genes)
+for (myfile in dependent_vars_files) {
+  my_abundance_mat = readRDS(myfile)
+  metadata_ordered = metadata[match(my_abundance_mat$SubjectID,metadata$SubjectID),]
+  my_abundance_mat = my_abundance_mat[,-match("SubjectID",colnames(my_abundance_mat))]
+  my_abundance_mat = as.matrix(my_abundance_mat)
+  my_abundance_mat = my_abundance_mat+min_value
+  my_abundance_mat = log(my_abundance_mat)
+  are_any_topgenes_found = top_genes_by_pval%in%colnames(my_abundance_mat)
+  if(sum(are_any_topgenes_found)>0) {
+    topGenes_found = top_genes_by_pval[are_any_topgenes_found]
+    print(topGenes_found)
+    my_condition = metadata_ordered$condition
+    my_condition = as.factor(my_condition)
+    for(topgene in topGenes_found) {
+      temp_df = data.frame(value=my_abundance_mat[,topgene],condition=my_condition)
+      pdf(paste(topgene,"_DR3_DR4_output_ten_perc_boxplot.pdf",sep=""))
+      myplot = ggplot(temp_df,aes(x=condition,y=value)) + geom_boxplot() + geom_jitter()
+      print(myplot)
+      dev.off()
+    }
+  }
+}
+
+```
+
+#Make boxplot function
+
+```{r}
+library(dplyr)
+library(ggplot2)
+make_top_ten_boxplots = function(input_folder,output_file,output_folder) {
+  dir.create(output_folder)
+  dependent_vars_files = list.files(input_folder,pattern=".rds",full.names = TRUE)
+  metadata = readRDS(dependent_vars_files[grep("_1_metadata_filtered.rds",dependent_vars_files)])
+  dependent_vars_files = dependent_vars_files[-grep("_metadata_filtered.rds",dependent_vars_files)]
+  min_value = readRDS(paste(input_folder,"/min_val",sep=""))
+  my_output = readRDS(output_file)
+  my_output = my_output[order(my_output$p.value),]
+  top_genes_by_pval = my_output$feature[1:10]
+  for (myfile in dependent_vars_files) {
+    my_abundance_mat = readRDS(myfile)
+    metadata_ordered = metadata[match(my_abundance_mat$SubjectID,metadata$SubjectID),]
+    my_abundance_mat = my_abundance_mat[,-match("SubjectID",colnames(my_abundance_mat))]
+    my_abundance_mat = as.matrix(my_abundance_mat)
+    my_abundance_mat = my_abundance_mat+min_value
+    my_abundance_mat = log(my_abundance_mat)
+    are_any_topgenes_found = top_genes_by_pval%in%colnames(my_abundance_mat)
+    if(sum(are_any_topgenes_found)>0) {
+      topGenes_found = top_genes_by_pval[are_any_topgenes_found]
+      print(topGenes_found)
+      my_condition = metadata_ordered$condition
+      my_condition = as.factor(my_condition)
+      for(topgene in topGenes_found) {
+        temp_df = data.frame(value=my_abundance_mat[,topgene],condition=my_condition)
+        pdf(paste(output_folder,"/",topgene,"_boxplot.pdf",sep=""))
+        myplot = ggplot(temp_df,aes(x=condition,y=value)) + geom_boxplot() + geom_jitter()
+        print(myplot)
+        dev.off()
+      }
+    }
+  }
+}
+
+make_top_ten_boxplots(input_folder="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/normalized_alignments/parsed_data/healthy_pre-t1d-DR3_DR4_only",output_file="initial_association_output/healthy_pre-t1d-DR3_DR4_only_output_both_conditions_no_same_median/healthy_pre-t1d-DR3_DR4_only_output_both_conditions_no_same_median_full_association_output_adjusted.rds",output_folder="DR4_DR4_only_both_conditions_no_same_median_boxplots")
+
+make_top_ten_boxplots(input_folder="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/normalized_alignments/parsed_data/healthy_pre-t1d-DR3_DR4_only",output_file="initial_association_output/healthy_pre-t1d-DR3_DR4_only_output_variance_cutoff/healthy_pre-t1d-DR3_DR4_only_output_variance_cutoff_full_association_output_adjusted.rds",output_folder="DR4_DR4_variance_cutoff_boxplots")
+
+make_top_ten_boxplots(input_folder="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/normalized_alignments/parsed_data/healthy_pre-t1d-DR3_DR4_only",output_file="initial_association_output/healthy_pre-t1d-DR3_DR4_only_output_both_conditions_no_zero_median/healthy_pre-t1d-DR3_DR4_only_output_both_conditions_no_zero_median_full_association_output_adjusted.rds",output_folder="DR4_DR4_no_zero_median_boxplots")
+```
+
+#Step 8. run initial associations
+
+```{bash}
+#sbatch -c 1 -t 0-18:00 -p medium --mem=10G scripts/run_regressions_noVoE.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/normalized_alignments/parsed_data/healthy_pre-t1d-DR3_DR4_only /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/initial_association_output/healthy_pre-t1d-DR3_DR4_only_output_ten_perc_cutoff 0.10
+
+#sbatch -c 1 -t 0-10:00 -p short --mem=10G scripts/run_regressions_noVoE_variance_cutoff.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/normalized_alignments/parsed_data/healthy_pre-t1d-DR3_DR4_only /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/initial_association_output/healthy_pre-t1d-DR3_DR4_only_output_variance_cutoff 6
+
+#sbatch -c 1 -t 0-10:00 -p short --mem=10G scripts/run_regressions_noVoE_no_zero_median_both_conditions.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/normalized_alignments/parsed_data/healthy_pre-t1d-DR3_DR4_only /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/initial_association_output/healthy_pre-t1d-DR3_DR4_only_output_both_conditions_no_zero_median
+
+#sbatch -c 1 -t 0-18:00 -p medium --mem=10G scripts/run_regressions_noVoE_no_same_median_both_conditions.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/normalized_alignments/parsed_data/healthy_pre-t1d-DR3_DR4_only /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/initial_association_output/healthy_pre-t1d-DR3_DR4_only_output_both_conditions_no_same_median
+
+ls -d /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/normalized_alignments/parsed_data/healthy_pre-t1d-*DR3_DR4_only | while read line; do basename $line; done > input_folders_VoE_initial_associations_DR3_4_only
+
+while read line
+do
+sbatch -c 1 -t 0-11:59 -p short --mem=10G scripts/run_regressions_noVoE_no_zero_median_both_conditions.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/normalized_alignments/parsed_data/${line} /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/initial_association_output_no_zero_median_both_conditions/${line}_no_zero_median_both_conditions_output
+done < input_folders_VoE_initial_associations_DR3_4_only
+
+
+while read line
+do
+sbatch -c 1 -t 0-11:59 -p short --mem=10G scripts/run_regressions_noVoE.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/normalized_alignments/parsed_data/${line} /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/initial_association_output_tenPerc_cutoff/${line}tenPerc_cutoff_output 0.10
+done < input_folders_VoE_initial_associations_DR3_4_only
+
+# now lets do all samples
+
+ls -d /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/normalized_alignments/parsed_data/healthy_pre-t1d-*all_HLA | while read line; do basename $line; done > input_folders_VoE_initial_associations_all_HLA
+
+while read line
+do
+sbatch -c 1 -t 0-11:59 -p short --mem=10G scripts/run_regressions_noVoE_no_zero_median_both_conditions.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/normalized_alignments/parsed_data/${line} /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/initial_association_output_no_zero_median_both_conditions/${line}_no_zero_median_both_conditions_output
+done < input_folders_VoE_initial_associations_all_HLA
+
+# restart healthy_pre-t1d-24month-all_HLA_no_zero_median_both_conditions_output. for some reason it didn't finish
+sbatch -c 1 -t 0-11:59 -p short --mem=10G scripts/run_regressions_noVoE_no_zero_median_both_conditions.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/normalized_alignments/parsed_data/healthy_pre-t1d-24month-all_HLA /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/initial_association_output_no_zero_median_both_conditions/healthy_pre-t1d-24month-all_HLA_no_zero_median_both_conditions_output
+
+
+while read line
+do
+sbatch -c 1 -t 0-18:00 -p medium --mem=10G scripts/run_regressions_noVoE.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/normalized_alignments/parsed_data/${line} /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/initial_association_output_tenPerc_cutoff/${line}tenPerc_cutoff_output 0.10
+done < input_folders_VoE_initial_associations_all_HLA
+
+
+
+
+
+## run associations for antibody tests
+
+ls -d /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/normalized_alignments/parsed_data/healthy_pre* | grep -v ".csv" | grep -v "pre-t1d" | while read line; do basename $line; done > input_folders_VoE_initial_associations_healthy_pre_antibodies
+
+
+while read line
+do
+sbatch -c 1 -t 0-18:00 -p medium --mem=10G scripts/run_regressions_noVoE.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/normalized_alignments/parsed_data/${line} /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/initial_association_output_tenPerc_cutoff/${line}tenPerc_cutoff_output 0.10
+done < input_folders_VoE_initial_associations_healthy_pre_antibodies
+
+
+```
+
+#Step 9. combine initial association output
+
+```{bash}
+#Rscript /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/parse_initial_association_output_noVoE.R /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/initial_association_output/healthy_pre-t1d-DR3_DR4_only_output_ten_perc_cutoff
+
+#Rscript /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/parse_initial_association_output_noVoE.R /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/initial_association_output/healthy_pre-t1d-DR3_DR4_only_output_both_conditions_no_same_median
+
+
+#Rscript /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/parse_initial_association_output_noVoE.R /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/initial_association_output/healthy_pre-t1d-DR3_DR4_only_output_both_conditions_no_zero_median
+
+#Rscript /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/parse_initial_association_output_noVoE.R /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/initial_association_output/healthy_pre-t1d-DR3_DR4_only_output_variance_cutoff
+
+conda activate r_env
+
+for x in initial_association_output_tenPerc_cutoff/*_output
+do
+Rscript /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/parse_initial_association_output_noVoE.R ${x}
+done
+
+
+for x in initial_association_output_tenPerc_cutoff/healthy_pre-GAD*_output
+do
+Rscript /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/parse_initial_association_output_noVoE.R ${x}
+done
+
+for x in initial_association_output_tenPerc_cutoff/healthy_pre-IA2A*_output
+do
+Rscript /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/parse_initial_association_output_noVoE.R ${x}
+done
+
+for x in initial_association_output_tenPerc_cutoff/healthy_pre-MIAA*_output
+do
+Rscript /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/parse_initial_association_output_noVoE.R ${x}
+done
+
+for x in initial_association_output_tenPerc_cutoff/healthy_pre-MIAA*_output
+do
+Rscript /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/parse_initial_association_output_noVoE.R ${x}
+done
+
+for x in initial_association_output_tenPerc_cutoff/healthy_pre-sero*_output
+do
+Rscript /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/parse_initial_association_output_noVoE.R ${x}
+done
+
+
+
+
+# don't include healthy_pre-t1d-24month-all_HLA_no_zero_median_both_conditions_output
+
+ls -d initial_association_output_no_zero_median_both_conditions/* | grep -v "healthy_pre-t1d-24month-all_HLA_no_zero_median_both_conditions_output" > combine_nozero_median_data
+
+while read line
+do
+Rscript /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/parse_initial_association_output_noVoE.R ${line}
+done < combine_nozero_median_data
+
+Rscript /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/parse_initial_association_output_noVoE.R initial_association_output_no_zero_median_both_conditions/healthy_pre-t1d-24month-all_HLA_no_zero_median_both_conditions_output
+```
+
+##Now we are going to order our genes by FDR or odds ratio and plot CDF. maybe 5%. Run massive lasso to get top predictive genes
+
+```{r}
+library(data.table)
+setwd("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/initial_association_output_tenPerc_cutoff")
+
+myfiles = list.files(pattern="^healthy",recursive = TRUE)
+myfiles = myfiles[grep(".rds$",myfiles)]
+
+for (x in myfiles) {
+  myrds = readRDS(x)
+  testName = gsub("tenPerc_cutoff_output_full_association_output_adjusted.rds","",basename(x))
+  myrds_pval_sorted = myrds[order(myrds$p.value),]
+  myrds_coef_sorted = myrds[order(abs(myrds$estimate),decreasing=TRUE),]
+  cdf_fun_estimate = ecdf(abs(myrds_coef_sorted$estimate))
+  cdf_fun_pvalue = ecdf(myrds_pval_sorted$p.value)
+  jpeg(paste("cdfs/",testName,"_cdf_pvalue_plots.jpg",sep=""))
+  plot(cdf_fun_pvalue,main=paste(testName,":pvalue"))
+  dev.off()
+  jpeg(paste("cdfs/",testName,"_cdf_estimate_plots.jpg",sep=""))
+  plot(cdf_fun_estimate,main=paste(testName,":estimate"))
+  dev.off()
+}
+
+
+```
+
+# make_CDF_plots.bash just runs the R code above
+
+```{bash}
+
+cd /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis
+
+sbatch -c 1 -t 0-11:59 -p short --mem=20G scripts/make_CDF_plots.bash 
+```
+
+##Make CDF plot for only healthy_pre-t1d-all_HLA. get FDR 0.1 and sort by coefficient. get top 5%
+
+```{r}
+library(data.table)
+setwd("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/initial_association_output_tenPerc_cutoff")
+
+myfiles = list.files(pattern="^healthy",recursive = TRUE)
+myfiles = myfiles[grep(".rds$",myfiles)]
+
+x = "healthy_pre-t1d-all_HLAtenPerc_cutoff_output/healthy_pre-t1d-all_HLAtenPerc_cutoff_output_full_association_output_adjusted.rds"
+
+myrds = readRDS(x)
+testName = gsub("tenPerc_cutoff_output_full_association_output_adjusted.rds","",basename(x))
+myrds_pval_sorted = myrds[order(myrds$p.value),]
+myrds_pval_sorted_sig = myrds_pval_sorted[myrds_pval_sorted$BH < 0.1,]
+myrds_pval_sorted_sig = myrds_pval_sorted_sig[order(abs(myrds_pval_sorted_sig$estimate),decreasing = TRUE),]
+
+#fivePerQuantile = quantile(abs(myrds_pval_sorted_sig$estimate),0.05)
+ninetyfivePerQuantile = quantile(abs(myrds_pval_sorted_sig$estimate),0.95)
+topfiveperce_estimate = myrds_pval_sorted_sig[abs(myrds_pval_sorted_sig$estimate)>ninetyfivePerQuantile,]
+
+dim(topfiveperce_estimate) # 38695
+
+cdf_fun = ecdf(abs(topfiveperce_estimate$estimate))
+jpeg("cdfs/healthy_pre-t1d-all_HLA_FDRsig_top5percEstimat_cdf_pvalue_plots.jpg")
+plot(cdf_fun,main=paste(testName,":estimate"))
+dev.off()
+
+write.table(topfiveperce_estimate,"healthy_pre-t1d-all_HLAtenPerc_cutoff_output/healthy_pre-t1d-all_HLAtenPerc_cutoff_output_full_association_output_adjusted_sigGenes_topFivePercORs.tsv",sep="\t",col.names=TRUE,row.names=FALSE,quote=FALSE)
+```
+
+#Next step is to get the normalized gene abundance data for our genes and do lasso regression
+
+```{r}
+library(glmnet)
+library(ggplot2)
+sigGenes = read.table("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/initial_association_output_tenPerc_cutoff/healthy_pre-t1d-all_HLAtenPerc_cutoff_output/healthy_pre-t1d-all_HLAtenPerc_cutoff_output_full_association_output_adjusted_sigGenes_topFivePercORs.tsv",sep="\t",header=TRUE)
+
+sigGenes = sigGenes$feature
+
+gene_to_file_mapping = read.table("/n/scratch3/users/s/sez10/_RESTORE/TEDDY/parsed_data/gene_locs.txt",header=FALSE)
+gene_to_file_mapping_sig = gene_to_file_mapping[match(sigGenes,gene_to_file_mapping$V1),]
+
+suffixes = gene_to_file_mapping_sig[,2]
+suffixes = gsub(".csv","",suffixes)
+suffixes = unique(suffixes)
+
+abundance_files = paste("/n/scratch3/users/s/sez10/_RESTORE/TEDDY/parsed_data/healthy_pre-t1d-all_HLA/healthy_pre-t1d-all_HLA_",suffixes,".rds",sep="")
+
+abundances_of_sig_genes = lapply(abundance_files, function(x) {
+  print(x)
+  abundance_temp = readRDS(x)
+  abundance_temp_sig = abundance_temp[,colnames(abundance_temp)%in%sigGenes,drop=FALSE]
+  return(abundance_temp_sig)
+})
+
+abundances_of_sig_genes_df = do.call("cbind",abundances_of_sig_genes)
+saveRDS(abundances_of_sig_genes_df,"abundances_of_sig_genes_df_health_pre-t1d-all_HLA.rds")
+
+abundances_of_sig_genes_df = readRDS("abundances_of_sig_genes_df_health_pre-t1d-all_HLA.rds")
+# for each gene add minimum non zero and log transform
+abundances_of_sig_genes_df_log = apply(abundances_of_sig_genes_df,2, function(x) {
+  min_val = min(x[x>0])
+  x = x + min_val
+  x = log(x)
+  return(x)
+})
+
+# spearman correlations
+#cor_matrix = cor(abundances_of_sig_genes_df_log,method="spearman")
+# now make heatmap
+#library(pheatmap)
+#pdf("sig_genes_correlation_matrix_pret1d_vs_healthy.pdf")
+#pheatmap(cor_matrix,show_rownames=FALSE,show_colnames=FALSE)
+#dev.off()
+
+# get metadata
+abundance_temp = readRDS(abundance_files[1])
+rownames(abundances_of_sig_genes_df_log) = abundance_temp$SubjectID
+
+metadata = readRDS("/n/scratch3/users/s/sez10/_RESTORE/TEDDY/parsed_data/healthy_pre-t1d-all_HLA/healthy_pre-t1d-all_HLA_1_metadata_filtered.rds")
+
+metadata = metadata[match(rownames(abundances_of_sig_genes_df_log),metadata$SubjectID),]
+
+# first thing to do is to find the correct lambda penalty
+set.seed(123)
+lambda_seq <- 10^seq(2, -2, by = -.1)
+
+cv_output <- cv.glmnet(abundances_of_sig_genes_df_log, metadata$condition,
+                       alpha = 1, lambda = lambda_seq, 
+                       nfolds = 5,family="binomial")
+
+# identifying best lamda
+best_lam <- cv_output$lambda.min
+
+lasso_best <- glmnet(abundances_of_sig_genes_df_log, metadata$condition, alpha = 1, lambda = best_lam,family="binomial")
+# get non 0 variables
+
+best_vars = coef(lasso_best)
+
+myVars = best_vars[best_vars[,1]>0,]
+
+saveRDS(myVars,"/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/lasso_coefficients.rds")
+
+myVars = readRDS("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/lasso_coefficients.rds")
+
+lasso_sig_genes = names(myVars)[-1]
+
+pdf("healthy_pre-t1d-all_HLA_lasso_sig_genes.pdf")
+for(topgene in lasso_sig_genes) {
+  temp_df = data.frame(value=abundances_of_sig_genes_df_log[,topgene],condition=as.factor(metadata$condition))
+  myplot = ggplot(temp_df,aes(x=condition,y=value)) + geom_boxplot() + geom_jitter() + ggtitle(topgene)
+  print(myplot)
+}
+dev.off()
+
+# make volcano plot illustrating genes that were in top 34,000 and then the genes that were lasso sig
+
+myfiles = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/initial_association_output_tenPerc_cutoff",pattern="^healthy",recursive = TRUE,full.names = TRUE)
+myfiles = myfiles[grep(".rds$",myfiles)]
+
+x = myfiles[grep("healthy_pre-t1d-all_HLAtenPerc_cutoff_output_full_association_output_adjusted.rds",myfiles)]
+
+myrds = readRDS(x)
+myrds$col = "not-sig"
+myrds = as.data.frame(myrds)
+myrds$col[myrds$feature%in%sigGenes] = "sig"
+myrds$col[myrds$feature%in%lasso_sig_genes] = "lasso-sig"
+myrds$col = as.factor(myrds$col)
+order_list = rep(1,length(myrds$feature))
+order_list[myrds$feature%in%lasso_sig_genes] = 2
+myrds$plot_order = order_list
+myrds$logPval = -log10(myrds$BH)
+volcano_plot = ggplot(myrds,aes(x=estimate,y=logPval,order=plot_order,color=col)) + geom_point() + geom_hline(yintercept=-log10(0.1), color = "red") + theme_classic() + theme(legend.text = element_text(size=20),legend.title=element_text(size=20)) + labs(y = "", x = "",color="Gene Status") #+ #guides(fill=guide_legend(title="Gene Status"))
+
+jpeg("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/sig_gene_volcano_plot.jpg",width=600)
+print(volcano_plot)
+#plot(myrds$estimate,-log10(myrds$BH),col=myrds$col,pch=pch_list)
+#abline(h=-log10(0.1),col="red")
+dev.off()
+
+library(caret)
+
+# need to do some cross validation
+
+#folds <- cut(seq(1,nrow(abundances_of_sig_genes_df_log)),breaks = 5,labels = FALSE)
+
+#set.seed(3456)
+#trainIndex <- createDataPartition(metadata$condition, p = .8, 
+#                                  list = FALSE, 
+#                                  times = 5)
+
+abundances_of_sig_genes_df_log_lasso_sig = abundances_of_sig_genes_df_log[,lasso_sig_genes]
+
+library(dplyr)
+#for (k in (1:5)) {
+#  print(k)
+#  trainIndexes = trainIndex[,k]
+#  testData <- abundances_of_sig_genes_df_log_lasso_sig[-trainIndexes, ]
+#  trainData <- abundances_of_sig_genes_df_log_lasso_sig[trainIndexes, ]
+#  condition_test = metadata$condition[-trainIndexes]
+#  condition_train = metadata$condition[trainIndexes]
+# trainData = cbind(trainData,condition=condition_train)
+#  testData = cbind(testData,condition=condition_test)
+#  #trainData$condition = condition_train
+#  #testData$condition = condition_test
+#  rf_fit_teddy <- train(as.factor(condition) ~ ., data = trainData)
+#  # predict outcomes
+#  pred_outcome <- predict(rf_fit_teddy, testData[,-match("condition",colnames(testData))])
+#  print(confusionMatrix(pred_outcome, as.factor(testData[,"condition"])))
+#}
+
+# now lets add in grs2, family history, and number of autoantibodies before T1D onset and do predictions
+
+# read in sample level metadata
+sample_metadata = read.csv("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/teddy_metadata_20190821_with_GRS2.csv")
+# onluy include subjects we have data for
+sample_metadata = sample_metadata[sample_metadata$m138_maskid%in%rownames(abundances_of_sig_genes_df_log_lasso_sig),]
+# now only include samples that have not gotten T1D yet.
+samps_to_keep = apply(sample_metadata, 1, function(myrow) {
+  if(!is.na(myrow["age_t1d"])) {
+    isBeforeT1D = as.numeric(myrow["age_at_collection"]) < as.numeric(myrow["age_t1d"])
+  } else {
+    # if age_t1d is NA then they never get T1D
+    isBeforeT1D = TRUE
+  }
+  return(isBeforeT1D)
+})
+sample_metadata = sample_metadata[samps_to_keep,]
+# now for each subject get number of autoantibodies, family history, and grs2 score
+grs2_fdr_num_autoantibodies_per_subj = lapply(split(sample_metadata,sample_metadata$m138_maskid), function(df_temp) {
+  grs2_temp = unique(df_temp$GRS_score)
+  family_hist = as.numeric(unique(df_temp$fdr))
+  # since we are doing average of all microbes, take oldest sample
+  oldest_samp = unlist(df_temp[which.max(as.numeric(df_temp$age_at_collection)),])
+  oldest_age = as.numeric(oldest_samp["age_at_collection"])
+  had_MIAA <- oldest_age >= as.numeric(oldest_samp["age_first_MIAA"])
+  if(is.na(had_MIAA)) {
+    had_MIAA = FALSE
+  }
+  had_GAD <- oldest_age >= as.numeric(oldest_samp["age_first_GAD"])
+  if(is.na(had_GAD)) {
+    had_GAD = FALSE
+  }
+  had_IA2A <- oldest_age >= as.numeric(oldest_samp["age_first_IA2A"])
+  if(is.na(had_IA2A)) {
+    had_IA2A = FALSE
+  }
+  num_autoantibodies_had = sum(as.numeric(c(had_MIAA,had_GAD,had_IA2A)))
+  return(c(grs2=grs2_temp,fdr=family_hist,autoantibody_num=num_autoantibodies_had))
+})
+grs2_fdr_num_autoantibodies_per_subj_df = do.call("rbind",grs2_fdr_num_autoantibodies_per_subj)
+
+grs2_fdr_num_autoantibodies_per_subj_df_ordered = grs2_fdr_num_autoantibodies_per_subj_df[match(rownames(abundances_of_sig_genes_df_log_lasso_sig),rownames(grs2_fdr_num_autoantibodies_per_subj_df)),]
+grs2_fdr_num_autoantibodies_per_subj_df_ordered = as.data.frame(grs2_fdr_num_autoantibodies_per_subj_df_ordered)
+grs2_fdr_num_autoantibodies_per_subj_df_ordered$fdr = as.factor(grs2_fdr_num_autoantibodies_per_subj_df_ordered$fdr)
+grs2_fdr_num_autoantibodies_per_subj_df_ordered$autoantibody_num = as.factor(grs2_fdr_num_autoantibodies_per_subj_df_ordered$autoantibody_num)
+grs2_fdr_num_autoantibodies_per_subj_df_ordered$condition = metadata$condition
+#grs2_fdr_num_autoantibodies_per_subj_df_ordered$condition = as.factor(grs2_fdr_num_autoantibodies_per_subj_df_ordered$condition)
+dummies <- dummyVars(condition ~ ., data = grs2_fdr_num_autoantibodies_per_subj_df_ordered)
+grs2_fdr_num_autoantibodies_per_subj_df_ordered_dummies = predict(dummies, newdata = grs2_fdr_num_autoantibodies_per_subj_df_ordered)
+grs2_fdr_num_autoantibodies_per_subj_df_ordered_dummies = as.data.frame(grs2_fdr_num_autoantibodies_per_subj_df_ordered_dummies)
+grs2_fdr_num_autoantibodies_per_subj_df_ordered_dummies$grs2 = scale(grs2_fdr_num_autoantibodies_per_subj_df_ordered_dummies$grs2,center = TRUE,scale=TRUE)
+
+abundances_of_sig_genes_df_log_lasso_sig_scaled = scale(abundances_of_sig_genes_df_log_lasso_sig,center=TRUE,scale=TRUE)
+
+abundances_of_sig_genes_df_log_lasso_sig_withMetadata = cbind(abundances_of_sig_genes_df_log_lasso_sig_scaled,grs2_fdr_num_autoantibodies_per_subj_df_ordered_dummies)
+missing_indexes = which(is.na(abundances_of_sig_genes_df_log_lasso_sig_withMetadata$grs2))
+metadata_noMissing = metadata[-missing_indexes,]
+# remove columns with missing GRS2 scores
+abundances_of_sig_genes_df_log_lasso_sig_withMetadata = abundances_of_sig_genes_df_log_lasso_sig_withMetadata[-missing_indexes,]
+
+all.equal(metadata_noMissing$SubjectID,rownames(abundances_of_sig_genes_df_log_lasso_sig_withMetadata))
+
+set.seed(3456)
+trainIndex <- createDataPartition(metadata_noMissing$condition, p = 0.75, 
+                                  list = FALSE, 
+                                  times = 5)
+
+library(pROC)
+
+library(dplyr)
+roc_list = c()
+f1score_list = c()
+confuMat_list = list()
+var_imp_df = matrix(0,ncol=5,nrow=ncol(abundances_of_sig_genes_df_log_lasso_sig_withMetadata))
+rownames(var_imp_df) = colnames(abundances_of_sig_genes_df_log_lasso_sig_withMetadata)
+for (k in (1:5)) {
+  print(k)
+  trainIndexes = trainIndex[,k]
+  testData <- abundances_of_sig_genes_df_log_lasso_sig_withMetadata[-trainIndexes, ]
+  trainData <- abundances_of_sig_genes_df_log_lasso_sig_withMetadata[trainIndexes, ]
+  condition_test = metadata_noMissing$condition[-trainIndexes]
+  condition_train = metadata_noMissing$condition[trainIndexes]
+  down_train <- downSample(x = trainData,
+                         y = as.factor(condition_train))
+  
+  #trainData = cbind(trainData,condition=condition_train)
+  testData = cbind(testData,condition=condition_test)
+  fitControl <- trainControl(## 5-fold CV
+                           method = "cv",
+                           number = 5)
+
+  rf_fit_teddy <- train(Class ~ ., data = down_train,trControl = fitControl,method="rf")
+  var_imp_temp = varImp(rf_fit_teddy)
+  var_imp_temp = var_imp_temp$importance
+  var_imp_temp = var_imp_temp[order(var_imp_temp,decreasing = TRUE),,drop=FALSE]
+  var_imp_df[,k] = var_imp_temp[rownames(var_imp_df),]
+  # predict outcomes
+  testData$grs2 = as.numeric(testData$grs2)
+  pred_outcome <- predict(rf_fit_teddy, testData[,-match("condition",colnames(testData))],type="prob")
+  
+  roc_elem = roc(response=testData[,"condition"],predictor=pred_outcome[,2],levels=c("0","1"),auc=TRUE,ci=TRUE)
+  roc_list[[k]] = roc_elem
+  
+  pred_outcome_bin = as.factor(as.numeric(pred_outcome[,2]> 0.5))
+  
+  confMat = confusionMatrix(pred_outcome_bin, as.factor(testData[,"condition"]))
+  F1_scores = confMat$byClass["F1"]
+  f1score_list <- c(f1score_list,F1_scores)
+  confuMat_list[[k]] = confMat
+}
+
+color_list = c("blue","green","red","orange","black")
+auc_values = sapply(roc_list,function(x) as.numeric(x$auc))
+
+pdf("roc_curve_lasso_sig_genes_metadata.pdf")
+plot(roc_list[[1]],col=color_list[1])
+for(x in 2:length(roc_list)) {
+  lines(roc_list[[x]],col=color_list[x])
+}
+legend("bottomright",legend=paste("AUC:",round(auc_values,2),sep=""),fill=color_list)
+dev.off()
+
+# now do the same thing with only metadata
+
+fdr_grs2_autoantibodyOnly = abundances_of_sig_genes_df_log_lasso_sig_withMetadata[,c("grs2","fdr.0","fdr.1","autoantibody_num.0","autoantibody_num.1","autoantibody_num.2","autoantibody_num.3")]
+
+roc_list2 = c()
+confuMat_list2 = list()
+f1_score_list2 = c()
+for (k in (1:5)) {
+  print(k)
+  trainIndexes = trainIndex[,k]
+  testData <- fdr_grs2_autoantibodyOnly[-trainIndexes, ]
+  trainData <- fdr_grs2_autoantibodyOnly[trainIndexes, ]
+  condition_test = metadata_noMissing$condition[-trainIndexes]
+  condition_train = metadata_noMissing$condition[trainIndexes]
+  down_train <- downSample(x = trainData,
+                        y = as.factor(condition_train))
+
+  trainData = cbind(trainData,condition=condition_train)
+  testData = cbind(testData,condition=condition_test)
+  fitControl <- trainControl(## 5-fold CV
+                           method = "cv",
+                           number = 5)
+
+  rf_fit_teddy <- train(Class ~ ., data = down_train,trControl = fitControl,method="rf")
+  # predict outcomes
+  testData$grs2 = as.numeric(testData$grs2)
+  pred_outcome <- predict(rf_fit_teddy, testData[,-match("condition",colnames(testData))],type="prob")
+  
+  roc_elem = roc(testData[,"condition"],pred_outcome[,2],levels=c("0","1"),auc=TRUE,ci=TRUE)
+  roc_list2[[k]] = roc_elem
+  
+  #confMat = confusionMatrix(pred_outcome, as.factor(testData[,"condition"]))
+  #F1_scores = confMat$byClass["F1"]
+  #f1_score_list2 <- c(f1_score_list2,F1_scores)
+  #confuMat_list2[[k]] = confMat
+}
+
+color_list = c("blue","green","red","orange","black")
+auc_values2 = sapply(roc_list2,function(x) as.numeric(x$auc))
+
+pdf("roc_curve_metadata_only.pdf")
+plot(roc_list2[[1]],col=color_list[1])
+for(x in 2:length(roc_list2)) {
+  lines(roc_list2[[x]],col=color_list[x])
+}
+legend("bottomright",legend=paste("AUC:",round(auc_values2,2),sep=""),fill=color_list)
+dev.off()
+
+newAuc_list = c()
+color_list2 = rep(color_list,each=2)
+pdf("roc_curve_metadata_only_vs_with_lassoSig.pdf")
+plot(roc_list[[1]],col=color_list[1])
+newAuc_list = c(newAuc_list,auc_values[1])
+lines(roc_list2[[1]],col=color_list[1],lty=2)
+newAuc_list = c(newAuc_list,auc_values2[1])
+for(x in 2:length(roc_list2)) {
+  lines(roc_list[[x]],col=color_list[x])
+  newAuc_list = c(newAuc_list,auc_values[x])
+  lines(roc_list2[[x]],col=color_list[x],lty=2)
+  newAuc_list = c(newAuc_list,auc_values2[x])
+}
+legend("bottomright",legend=paste("AUC:",round(newAuc_list,2),sep=""),fill=color_list2,lty=rep(c(1,2),5))
+dev.off()
+
+
+
+
+
+#trainIndex2 <- createDataPartition(metadata$condition, p = .8, 
+#                                  list = FALSE, 
+#                                  times = 1)
+
+#trainIndexes = trainIndex2[,1]
+#testData <- abundances_of_sig_genes_df_log_lasso_sig[-trainIndexes, ]
+#trainData <- abundances_of_sig_genes_df_log_lasso_sig[trainIndexes, ]
+#condition_test = metadata$condition[-trainIndexes]
+#condition_train = metadata$condition[trainIndexes]
+#trainData = cbind(trainData,condition=condition_train)
+#testData = cbind(testData,condition=condition_test)
+#rf_fit_teddy <- train(as.factor(condition) ~ ., data = trainData)
+#pred_outcome <- predict(rf_fit_teddy, testData[,-match("condition",colnames(testData))])
+#print(confusionMatrix(pred_outcome, as.factor(testData[,"condition"])))
+
+# lets see if we scramble lables and redo analysis how often by chance to we get coefficients from lasso sig genes higher than what we got with real data
+
+boot_coeficient_list = list()
+
+set.seed(123)
+for (boot_num in 1:50) {
+  print(boot_num)
+  condition_boot = sample(metadata$condition)
+  #cv_output_boot <- cv.glmnet(abundances_of_sig_genes_df_log, condition_boot,
+  cv_output_boot <- cv.glmnet(abundances_of_sig_genes_df_log_lasso_sig, condition_boot,
+                       alpha = 1, lambda = lambda_seq, 
+                       nfolds = 5,family="binomial")
+  # identifying best lamda
+  best_lam_boot <- cv_output_boot$lambda.min
+  lasso_best_boot <- glmnet(abundances_of_sig_genes_df_log_lasso_sig, condition_boot, alpha = 1, lambda = best_lam_boot,family="binomial")
+  best_vars_boot = coef(lasso_best_boot)
+  boot_coeficient_list[[boot_num]] = best_vars_boot[lasso_sig_genes,]
+}
+
+# get non 0 variables
+
+# check to make sure all the names are in the same order
+
+names_temp = names(boot_coeficient_list[[1]])
+table(unlist(lapply(boot_coeficient_list, function(x) all.equal(names(x),names_temp))))
+# conver to matrix
+boot_coeficient_df = do.call("cbind",boot_coeficient_list)
+
+myVars_nointercept = myVars[-1]
+all.equal(names(myVars_nointercept),rownames(boot_coeficient_df))
+# calculate percent of random samples that have greater coeficient than other values
+boot_pvals = c()
+for(x in 1:nrow(boot_coeficient_df)) {
+  true_coef = myVars_nointercept[x]
+  pval_boot = sum(abs(boot_coeficient_df[x,]) > abs(true_coef))/ncol(boot_coeficient_df)
+  boot_pvals[x] = pval_boot
+}
+sum(boot_pvals<0.05) # in all 61 genes proportion of coefficients greater than real data is less than 5% of samples. 60 out of 61 genes robust
+pdf("lasso_bootstrap_pvals_v2.pdf")
+hist(boot_pvals,xlim=c(0,0.1))
+abline(v=0.05,col="red")
+dev.off()
+
+# now do a different bootstrap method where I am going to take a random 50% of 0s and 50% of T1D samples 
+
+T1Dsamples = which(metadata$condition==1)
+nonT1Dsamples = which(metadata$condition==0)
+
+boot_coeficient_list2 = list()
+
+set.seed(123)
+for (boot_num in 1:50) {
+  print(boot_num)
+  
+  T1Dsamples_boot = sample(T1Dsamples,length(T1Dsamples)/2)
+  nonT1Dsamples_boot = sample(nonT1Dsamples,length(nonT1Dsamples)/2)
+  chosen_samples_boot = sort(c(T1Dsamples_boot,nonT1Dsamples_boot))
+  abundances_of_sig_genes_df_log_boot_samps = abundances_of_sig_genes_df_log_lasso_sig[chosen_samples_boot,]
+  condition_boot = metadata$condition[chosen_samples_boot]
+
+  cv_output_boot <- cv.glmnet(abundances_of_sig_genes_df_log_boot_samps, condition_boot,
+                       alpha = 1, lambda = lambda_seq, 
+                       nfolds = 5,family="binomial")
+  # identifying best lamda
+  best_lam_boot <- cv_output_boot$lambda.min
+  lasso_best_boot <- glmnet(abundances_of_sig_genes_df_log_boot_samps, condition_boot, alpha = 1, lambda = best_lam_boot,family="binomial")
+  best_vars_boot = coef(lasso_best_boot)
+  boot_coeficient_list2[[boot_num]] = best_vars_boot[lasso_sig_genes,] > 0
+}
+# now we hopefully see that in more than 95% of cases most of the genes have a coef greater than 0
+boot_coeficient_df2 = do.call("cbind",boot_coeficient_list2)
+table(rowSums(boot_coeficient_df2)/ncol(boot_coeficient_df2) > 0.95) # none meet this criteria
+table(rowSums(boot_coeficient_df2)/ncol(boot_coeficient_df2) > 0.50) # 25 genes get over 50% the same
+
+proportion_coefs_gt_one = rowSums(boot_coeficient_df2)/ncol(boot_coeficient_df2)
+
+pdf("proportion_coef_gt_0_lasso_boot.pdf")
+hist(proportion_coefs_gt_one,xlim=c(0,1))
+abline(v=0.95,col="red")
+dev.off()
+
+## now we are going to measure the variance of each gene at different timepoints
+
+gene_to_file_mapping_lasso_genes = gene_to_file_mapping[match(lasso_sig_genes,gene_to_file_mapping[,1]),]
+lasso_sig_gene_locations = unique(gene_to_file_mapping_lasso_genes[,2])
+
+library(data.table)
+lasso_sig_gene_abundances_all_samples = lapply(lasso_sig_gene_locations, function(x) {
+  print(x)
+  abundance_temp = fread(paste("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/normalized_alignments/parsed_data",x,sep="/"),sep=",",header=TRUE)
+  abundance_temp_sig = abundance_temp[genename%in%lasso_sig_genes,]
+  return(abundance_temp_sig)
+})
+
+lasso_sig_gene_abundances_all_samples_dt = rbindlist(lasso_sig_gene_abundances_all_samples)
+lasso_sig_gene_abundances_all_samples_df = as.data.frame(lasso_sig_gene_abundances_all_samples_dt)
+rownames(lasso_sig_gene_abundances_all_samples_df) = lasso_sig_gene_abundances_all_samples_df[,2]
+lasso_sig_gene_abundances_all_samples_df = lasso_sig_gene_abundances_all_samples_df[,-c(1,2)]
+write.csv(lasso_sig_gene_abundances_all_samples_df,file="lasso_sig_gene_abundances_all_samples_df.csv")
+
+#lasso_sig_gene_abundances_all_samples_df = read.csv("lasso_sig_gene_abundances_all_samples_df.csv",header=TRUE,row.names=1)
+
+lasso_sig_gene_abundances_all_samples_df_log = apply(lasso_sig_gene_abundances_all_samples_df,1, function(x) {
+  min_val = min(x[x>0])
+  x = x + min_val
+  x = log(x)
+  return(x)
+})
+lasso_sig_gene_abundances_all_samples_df_log = t(lasso_sig_gene_abundances_all_samples_df_log)
+
+# load in metadata for all samples
+tedd_metadata_allsamples = read.csv("teddy_metadata_20190821.csv")
+tedd_metadata_allsamples = tedd_metadata_allsamples[tedd_metadata_allsamples$Run%in%colnames(lasso_sig_gene_abundances_all_samples_df_log),]
+
+# make abundance of each gene as a function of time
+pdf("lasso_abundances_function_time.pdf")
+sapply(rownames(lasso_sig_gene_abundances_all_samples_df_log), function(geneName) {
+  gene_temp_abundance = lasso_sig_gene_abundances_all_samples_df_log[geneName,,drop=FALSE]
+  samples_Ihavemetadatafor = intersect(colnames(gene_temp_abundance),tedd_metadata_allsamples$Run)
+  gene_temp_abundance = gene_temp_abundance[,samples_Ihavemetadatafor]
+  metadata_matched = tedd_metadata_allsamples[match(samples_Ihavemetadatafor,tedd_metadata_allsamples$Run),]
+  # remove people who already have T1D
+  currently_hasT1D = metadata_matched$age_at_collection >= metadata_matched$age_t1d
+  metadata_matched_t1d_status = metadata_matched$t1d_sero_control
+  abundance_temp_dataframe = data.frame(abundance=as.numeric(gene_temp_abundance),age=metadata_matched$age_at_collection,t1d_status=metadata_matched_t1d_status,currently_hasT1D)
+  # remove people who already have T1D
+  abundance_temp_dataframe = abundance_temp_dataframe[-which(abundance_temp_dataframe$currently_hasT1D == TRUE),]
+  myplot = ggplot(abundance_temp_dataframe,aes(x=age,y=abundance,color=t1d_status)) + geom_point() + geom_smooth(method="loess") + ggtitle(label=geneName)
+  print(myplot)
+})
+dev.off()
+
+### now do the predictions as we did above but do for different time points. e.g. children younger than 3 months old, 6 months, 12 months, 18 months ... etc
+
+
+sample_metadata = read.csv("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/teddy_metadata_20190821_with_GRS2.csv")
+# only include samples that have not gotten T1D yet
+#samps_to_keep = apply(sample_metadata, 1, function(myrow) {
+#  if(!is.na(myrow["age_t1d"])) {
+#    isBeforeT1D = as.numeric(myrow["age_at_collection"]) < as.numeric(myrow["age_t1d"])
+#  } else {
+#    # if age_t1d is NA then they never get T1D
+#    isBeforeT1D = TRUE
+#  }
+#  return(isBeforeT1D)
+#})
+#sample_metadata = sample_metadata[samps_to_keep,]
+# now get samples we have metadaa and gene abundance data for
+lasso_sig_gene_abundances_all_samples_df = read.csv("lasso_sig_gene_abundances_all_samples_df.csv",header=TRUE,row.names=1)
+
+metadata_abundance_samples= intersect(colnames(lasso_sig_gene_abundances_all_samples_df),sample_metadata$Run)
+
+lasso_sig_gene_abundances_all_samples_df_intersection = lasso_sig_gene_abundances_all_samples_df[,metadata_abundance_samples]
+sample_metadata_ordered = sample_metadata[match(metadata_abundance_samples,sample_metadata$Run),]
+
+# now make function to do the prediction
+library(caret)
+days_vec = c(92, 183, 365, 548, 730,912,1095)
+
+predictions_diff_times = function(days, abundance_data_temp,metadata_temp) {
+  # only keep samples below number of days
+  young_enough = metadata_temp$age_at_collection <= days
+  # also remove samples that have had T1D
+  not_have_T1D = metadata_temp$T1D_Outcome != "After"
+  
+  metadata_temp = metadata_temp[young_enough & not_have_T1D,]
+  # also remove samples that have had T1D
+  
+  abundance_data_temp = abundance_data_temp[,metadata_temp$Run]
+  # now get the grs2, fdr and numberr of autoantibodies per subject
+  grs2_fdr_num_autoantibodies_per_subj = lapply(split(metadata_temp,metadata_temp$m138_maskid), function(df_temp) {
+    grs2_temp = unique(df_temp$GRS_score)
+    family_hist = as.numeric(unique(df_temp$fdr))
+    willGetT1D <- unique(df_temp$T1D_Outcome)
+    willGetT1D = as.numeric(willGetT1D == "Before")
+    oldest_samp = unlist(df_temp[which.max(as.numeric(df_temp$age_at_collection)),])
+    oldest_age = as.numeric(oldest_samp["age_at_collection"])
+    
+    had_MIAA <- oldest_age >= as.numeric(oldest_samp["age_first_MIAA"])
+    if(is.na(had_MIAA)) {
+      had_MIAA = FALSE
+    }
+    had_GAD <- oldest_age >= as.numeric(oldest_samp["age_first_GAD"])
+    if(is.na(had_GAD)) {
+      had_GAD = FALSE
+    }
+    had_IA2A <- oldest_age >= as.numeric(oldest_samp["age_first_IA2A"])
+    if(is.na(had_IA2A)) {
+      had_IA2A = FALSE
+    }
+    num_autoantibodies_had = sum(as.numeric(c(had_MIAA,had_GAD,had_IA2A)))
+    return(c(grs2=grs2_temp,fdr=family_hist,autoantibody_num=num_autoantibodies_had,T1D_status=willGetT1D))
+  })
+  grs2_fdr_num_autoantibodies_per_subj_df = do.call("rbind",grs2_fdr_num_autoantibodies_per_subj)
+  grs2_fdr_num_autoantibodies_per_subj_df = as.data.frame(grs2_fdr_num_autoantibodies_per_subj_df)
+  grs2_fdr_num_autoantibodies_per_subj_df$grs2 = as.numeric(grs2_fdr_num_autoantibodies_per_subj_df$grs2)
+  grs2_fdr_num_autoantibodies_per_subj_df$fdr = as.numeric(grs2_fdr_num_autoantibodies_per_subj_df$fdr)
+  grs2_fdr_num_autoantibodies_per_subj_df$autoantibody_num = as.numeric(grs2_fdr_num_autoantibodies_per_subj_df$autoantibody_num)
+
+  # now do the same thing but average the abundances for each subject
+  abundance_data_temp_subject = lapply(split(metadata_temp,metadata_temp$m138_maskid), function(df_temp) {
+    runs_temp = df_temp$Run
+    return(rowMeans(abundance_data_temp[,runs_temp,drop=FALSE]))
+  })
+  abundance_data_temp_subject_df = do.call("rbind",abundance_data_temp_subject)
+  
+  # filter out genes not abundant in at least 10% of samples
+  genes_to_keep = (colSums(abundance_data_temp_subject_df>0)/nrow(abundance_data_temp_subject_df))*100 >=10
+  abundance_data_temp_subject_df = abundance_data_temp_subject_df[,genes_to_keep]
+  
+  all.equal(rownames(abundance_data_temp_subject_df),rownames(grs2_fdr_num_autoantibodies_per_subj_df))
+  # now add dummy variables 
+  if(length(unique(grs2_fdr_num_autoantibodies_per_subj_df$fdr)) >1) {
+    grs2_fdr_num_autoantibodies_per_subj_df$fdr = as.factor(grs2_fdr_num_autoantibodies_per_subj_df$fdr)
+  }
+  if(length(unique(grs2_fdr_num_autoantibodies_per_subj_df$autoantibody_num)) >1) {
+    grs2_fdr_num_autoantibodies_per_subj_df$autoantibody_num = as.factor(grs2_fdr_num_autoantibodies_per_subj_df$autoantibody_num)
+  }
+  dummies <- dummyVars(T1D_status ~ ., data = grs2_fdr_num_autoantibodies_per_subj_df)
+  
+  t1D_status_temp = grs2_fdr_num_autoantibodies_per_subj_df$T1D_status
+  
+  grs2_fdr_num_autoantibodies_per_subj_df_dummies = predict(dummies, newdata = grs2_fdr_num_autoantibodies_per_subj_df)
+  grs2_fdr_num_autoantibodies_per_subj_df_dummies = as.data.frame(grs2_fdr_num_autoantibodies_per_subj_df_dummies)
+  grs2_fdr_num_autoantibodies_per_subj_df_dummies$grs2 = scale(grs2_fdr_num_autoantibodies_per_subj_df_dummies$grs2,center = TRUE,scale=TRUE)
+  abundance_data_temp_subject_df = scale(abundance_data_temp_subject_df,center=TRUE,scale=TRUE)
+  abundance_data_temp_subject_withMetadata = cbind(abundance_data_temp_subject_df,grs2_fdr_num_autoantibodies_per_subj_df_dummies)
+  missing_indexes = which(is.na(abundance_data_temp_subject_withMetadata$grs2))
+  if(length(missing_indexes)>0) {
+    abundance_data_temp_subject_withMetadata = abundance_data_temp_subject_withMetadata[-missing_indexes,]
+    t1D_status_temp = t1D_status_temp[-missing_indexes]
+  }
+  
+  # now its time to do predictions!!
+  
+  
+  set.seed(3456)
+  trainIndex <- createDataPartition(as.factor(t1D_status_temp), p = 0.75, 
+                                  list = FALSE, 
+                                  times = 5)
+
+  library(pROC)
+
+  library(dplyr)
+  roc_list = c()
+  roc_list2 = c()
+  f1score_list = c()
+  f1score_list2 = c()
+  confuMat_list = list()
+  confuMat_list2 = list()
+  var_imp_df = matrix(0,ncol=5,nrow=ncol(abundance_data_temp_subject_withMetadata))
+  rownames(var_imp_df) = colnames(abundance_data_temp_subject_withMetadata)
+  for (k in (1:5)) {
+    print(k)
+    trainIndexes = trainIndex[,k]
+    testData <- abundance_data_temp_subject_withMetadata[-trainIndexes, ]
+    trainData <- abundance_data_temp_subject_withMetadata[trainIndexes, ]
+    condition_test = t1D_status_temp[-trainIndexes]
+    condition_train = t1D_status_temp[trainIndexes]
+    trainData = cbind(trainData,condition=condition_train)
+    testData = cbind(testData,condition=condition_test)
+    fitControl <- trainControl(## 5-fold CV
+                           method = "cv",
+                           number = 5)
+
+    rf_fit_teddy <- train(as.factor(condition) ~ ., data = trainData,trControl = fitControl,method="rf")
+    rf_fit_teddy_metaOnly <- train(as.factor(condition) ~ ., data = trainData[,c(colnames(grs2_fdr_num_autoantibodies_per_subj_df_dummies),"condition")],trControl = fitControl,method="rf")
+    
+    var_imp_temp = varImp(rf_fit_teddy)
+    var_imp_temp = var_imp_temp$importance
+    var_imp_temp = var_imp_temp[order(var_imp_temp,decreasing = TRUE),,drop=FALSE]
+    var_imp_df[,k] = var_imp_temp[rownames(var_imp_df),]
+    # predict outcomes
+    pred_outcome <- predict(rf_fit_teddy, testData[,-match("condition",colnames(testData))])
+    pred_outcomeMetaOnly <- predict(rf_fit_teddy_metaOnly, testData[,-match("condition",colnames(testData))])
+  
+    roc_elem = roc(testData[,"condition"],as.numeric(as.character(pred_outcome)),levels=c("0","1"),auc=TRUE,ci=TRUE)
+    roc_list[[k]] = roc_elem
+    roc_elem_metaOnly = roc(testData[,"condition"],as.numeric(as.character(pred_outcomeMetaOnly)),levels=c("0","1"),auc=TRUE,ci=TRUE)
+    roc_list2[[k]] = roc_elem_metaOnly
+    confMat = confusionMatrix(pred_outcome, as.factor(testData[,"condition"]))
+    F1_scores = confMat$byClass["F1"]
+    f1score_list <- c(f1score_list,F1_scores)
+    confuMat_list[[k]] = confMat
+    
+    confMatMetaOnly = confusionMatrix(pred_outcomeMetaOnly, as.factor(testData[,"condition"]))
+    F1_scoresMetaOnly = confMatMetaOnly$byClass["F1"]
+    f1score_list2 <- c(f1score_list2,F1_scoresMetaOnly)
+    confuMat_list2[[k]] = confMatMetaOnly
+  }
+  
+  color_list = c("blue","green","red","orange","black")
+  auc_values = sapply(roc_list,function(x) as.numeric(x$auc))
+  auc_values2 = sapply(roc_list2,function(x) as.numeric(x$auc))
+  auc_values_new = c()
+
+  pdf(paste("roc_curve_lasso_sig_genes_metadata_day",days,".pdf",sep=""))
+    plot(roc_list[[1]],col=color_list[1])
+    auc_values_new = c(auc_values_new,auc_values[1])
+    lines(roc_list2[[1]],col=color_list[1])
+    auc_values_new = c(auc_values_new,auc_values2[1])
+      for(x in 2:length(roc_list)) {
+      lines(roc_list[[x]],col=color_list[x])
+      auc_values_new = c(auc_values_new,auc_values[x])
+      lines(roc_list2[[x]],col=color_list[x])
+      auc_values_new = c(auc_values_new,auc_values2[x])
+    }
+  legend("bottomright",legend=paste("AUC:",round(auc_values_new,2),sep=""),fill=rep(color_list,each=2))
+  dev.off()
+  
+  return(list(roc_list,roc_list2,f1score_list,f1score_list2,confuMat_list,confuMat_list2,var_imp_df))
+}
+
+day_92_res = predictions_diff_times(days=92, abundance_data_temp=lasso_sig_gene_abundances_all_samples_df_intersection,metadata_temp=sample_metadata_ordered)
+
+day_183_res = predictions_diff_times(days=183, abundance_data_temp=lasso_sig_gene_abundances_all_samples_df_intersection,metadata_temp=sample_metadata_ordered)
+
+day_365_res = predictions_diff_times(days=365, abundance_data_temp=lasso_sig_gene_abundances_all_samples_df_intersection,metadata_temp=sample_metadata_ordered)
+
+day_548_res = predictions_diff_times(days=548, abundance_data_temp=lasso_sig_gene_abundances_all_samples_df_intersection,metadata_temp=sample_metadata_ordered)
+
+day_730_res = predictions_diff_times(days=730, abundance_data_temp=lasso_sig_gene_abundances_all_samples_df_intersection,metadata_temp=sample_metadata_ordered)
+
+day_912_res = predictions_diff_times(days=912, abundance_data_temp=lasso_sig_gene_abundances_all_samples_df_intersection,metadata_temp=sample_metadata_ordered)
+
+day_1095_res = predictions_diff_times(days=1095, abundance_data_temp=lasso_sig_gene_abundances_all_samples_df_intersection,metadata_temp=sample_metadata_ordered)
+
+
+times_df = data.frame(c("",""),c(92,""),c(183,""),c(183,365),c(365,""),c(365,548),c(548,""),c(548,730),c(730,""))
+times_df = t(times_df)
+times_df = as.data.frame(times_df)
+T1D_status = c(TRUE,FALSE,"NA")
+
+library(dplyr)
+get_variance = function(times,hasT1D,metadata_temp,abundances_temp) {
+  # select samples I want to get varance for
+  if(hasT1D == TRUE) {
+    metadata_temp = metadata_temp %>% filter(t1d == hasT1D) 
+  } else if (hasT1D == FALSE) {
+    metadata_temp = metadata_temp %>% filter(t1d == hasT1D)
+  }
+  if (length(times) == 1) {
+    metadata_temp = metadata_temp %>% filter(age_at_collection<=times[1])
+  } else if (length(times) == 2) {
+    metadata_temp = metadata_temp %>% filter(age_at_collection>=times[1], age_at_collection<=times[2])
+  }
+  # mow get variance
+  abundances_temp_filtered = abundances_temp[,metadata_temp$Run]
+  variances=apply(abundances_temp_filtered, 1, sd)
+  return(variances)
+}
+
+df_list = list()
+counter = 1
+
+for (hasT1D in T1D_status) {
+  for(x in 1:nrow(times_df)) {
+    my_times = times_df[x,]
+    my_times = unlist(my_times)
+    my_times = my_times[my_times!=""]
+    my_times = as.numeric(my_times)
+    variances_temp = get_variance(times=my_times,hasT1D=hasT1D,metadata_temp=tedd_metadata_allsamples,abundances_temp=lasso_sig_gene_abundances_all_samples_df)
+    if(length(my_times) == 0) {
+      my_times_str = "all_times"
+    } else {
+    my_times_str = round(my_times/30)
+    my_times_str = paste(my_times_str,"months",sep="")
+    my_times_str = paste(my_times_str,collapse="_")
+    }
+
+    variance_df = data.frame(names(variances_temp),variances_temp,T1D_status=hasT1D,time=my_times_str)
+    df_list[[counter]] = variance_df
+    counter = counter + 1
+  }
+}
+
+df_list_var_df = do.call("rbind",df_list)
+# make a line plot for each variable
+
+times_order = c("all_times","3months","6months","12months","18months","24months","6months_12months","12months_18months","18months_24months")
+
+pdf("variance_line_plots_lasso_sig_genes.pdf",width=12)
+for (mygene in lasso_sig_genes) {
+  df_list_var_df_temp = df_list_var_df[mygene == df_list_var_df[,1],]
+  
+  df_list_var_df_temp$time = factor(df_list_var_df_temp$time,levels=times_order)
+  myplot = ggplot(df_list_var_df_temp,aes(x=time,y=variances_temp,group=T1D_status)) + ggtitle(unique(df_list_var_df_temp[,1])) + geom_line(aes(x=time,color=T1D_status)) + geom_point(aes(x=time,color=T1D_status))
+  print(myplot)
+}
+dev.off()
+```
+
+
+###Lets try doing a zero-inflated mixed effect model
+
+#First thing to do is count the number of aligned reads in each sample
+
+```{bash}
+#for x in /n/scratch3/users/l/ldp9/_RESTORE/TEDDY_raw_alignments/*_alignment_data.tsv.gz
+#do
+cd /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis
+#awk 'NR>1 {for(i=1;i<=NF;i++)$i=(a[i]+=$i)}END{print}' /n/scratch3/users/l/ldp9/_RESTORE/TEDDY_raw_alignments_combined/raw_abundance_matrix_all_samples.tsv > num_aligned_reads_per_sample.txt
+
+ls /n/scratch3/users/l/ldp9/_RESTORE/TEDDY_raw_alignments_combined/raw_input_files_*_output.tsv
+
+mkdir aligned_read_per_sample
+
+sbatch -c 1 -t 0-00:30 -p short --mem=75G  scripts/calculateAligned_read.bash /n/scratch3/users/l/ldp9/_RESTORE/TEDDY_raw_alignments_combined/raw_input_files_aa_output.tsv aligned_read_per_sample/raw_input_files_aa_output.tsv
+
+for x in /n/scratch3/users/l/ldp9/_RESTORE/TEDDY_raw_alignments_combined/raw_input_files_a[b-z]_output.tsv;
+do
+outputFile=$(basename ${x})
+sbatch -c 1 -t 0-00:20 -p short --mem=70G  scripts/calculateAligned_read.bash ${x} aligned_read_per_sample/${outputFile}
+done
+
+cat *_output.tsv > all_samples_aligned_read.tsv
+```
+
+
+```{r}
+args = commandArgs(trailingOnly=TRUE)
+input_abundances = args[1] # e.g. /n/scratch3/users/l/ldp9/_RESTORE/TEDDY_raw_alignments_combined/raw_abundance_matrix_all_samples_split_by_genes/raw_abundance_matrix_all_samples_split_mb
+output = args[2]
+sample_metadata=args[3]  # /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/teddy_metadata_20190821_with_GRS2.csv
+num_aliged_reads_file=args[4] # /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/aligned_read_per_sample/all_samples_aligned_read.tsv
+thread_number=as.numeric(args[5])
+
+library(NBZIMM)
+library(nlme)
+library(data.table)
+library(parallel)
+library(dplyr)
+
+# first format metadata
+
+metadata = read.csv(sample_metadata)
+num_aliged_reads_file_df = read.table(num_aliged_reads_file,sep="\t",header=FALSE)
+metadata$num_aligned_reads = num_aliged_reads_file_df[match(metadata$Run,num_aliged_reads_file_df[,1]),2]
+# filter metadata samples to only include those that don't have or never get T1D
+metadata = metadata[metadata$T1D_Outcome != "After",]
+# make the group variable numeric
+metadata$group = as.numeric(metadata$t1d)
+
+# read in gene abundance data
+raw_gene_counts = fread(input_abundances,sep="\t",header=FALSE,data.table=FALSE,nrow=1)
+if(raw_gene_counts[1,1] == "gene") {
+  raw_gene_counts = fread(input_abundances,sep="\t",header=TRUE,data.table=FALSE)
+} else {
+  raw_gene_counts = fread(input_abundances,sep="\t",header=FALSE,data.table=FALSE)
+  header = fread("/n/scratch3/users/l/ldp9/_RESTORE/TEDDY_raw_alignments_combined/raw_abundance_matrix_all_samples_split_by_genes/raw_abundance_matrix_all_samples_split_aa",header=FALSE,data.table=FALSE,nrows=1)
+  header = as.character(header[1,])
+  colnames(raw_gene_counts) = header
+}
+# get the names of the header
+rownames(raw_gene_counts) = raw_gene_counts[,1]
+raw_gene_counts = raw_gene_counts[,-1]
+raw_gene_counts = t(raw_gene_counts)
+# find the runs that are in both abundance and metadata
+samples_both_counts_metadata = intersect(rownames(raw_gene_counts),metadata$Run)
+raw_gene_counts_filt = raw_gene_counts[samples_both_counts_metadata,]
+metadata_filt = metadata[match(samples_both_counts_metadata,metadata$Run),]
+# remove genes with low percent of abundances
+gene_to_keep = colSums(raw_gene_counts_filt>0)/nrow(raw_gene_counts_filt) > 0.10
+raw_gene_counts_filt = raw_gene_counts_filt[,gene_to_keep]
+
+if(thread_number>1) {
+  model_results = mclapply(colnames(raw_gene_counts_filt), function(gene_name_temp) {
+    metadata_temp = cbind.data.frame(metadata_filt,gene_abundance=raw_gene_counts_filt[,gene_name_temp])
+    myModel = glmm.zinb(gene_abundance ~ group + age_at_collection+offset(log(num_aligned_reads)),data = metadata_temp,random = ~ 1|m138_maskid, zi_fixed = ~group, zi_random =NULL,na.action=na.omit)
+    results = summary(myModel)$tTable["group",]
+    results = c(results,feature=gene_name_temp)
+    return(results)
+  },mc.cores=thread_number)
+} else {
+  model_results = lapply(colnames(raw_gene_counts_filt), function(gene_name_temp) {
+    metadata_temp = cbind.data.frame(metadata_filt,gene_abundance=raw_gene_counts_filt[,gene_name_temp])
+    myModel = glmm.zinb(gene_abundance ~ group + offset(log(num_aligned_reads)),data = metadata_temp,random = ~ 1|m138_maskid, zi_fixed = ~1, zi_random =NULL,na.action=na.omit)
+    results = summary(myModel)$tTable["group",]
+    results = c(results,feature=gene_name_temp)
+    return(results)
+  })
+}
+model_results_df = bind_rows(model_results)
+colnames(model_results_df) = c("Value","Std.Error","DF","tvalue","pvalue","feature")
+
+write.table(model_results_df,file=output,sep="\t",col.names=TRUE,row.names=FALSE,quote=FALSE)
+```
+
+```{bash}
+
+mkdir zinb_ouptut
+
+ls /n/scratch3/users/l/ldp9/_RESTORE/TEDDY_raw_alignments_combined/raw_abundance_matrix_all_samples_split_by_genes/raw_abundance_matrix_all_samples_split_* | grep -v "_filtered.tsv" > zinb_inputfiles.txt
+
+cd /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/
+
+head -n 1 zinb_inputfiles.txt > test_zinb.txt
+while read line
+do
+outputFile=$(basename ${line})
+sbatch -c 10 -t 0-11:59 -p short --mem=30G scripts/run_zinb.bash ${line} zinb_ouptut/${outputFile}_zinb_out.tsv /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/teddy_metadata_20190821_with_GRS2.csv /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/aligned_read_per_sample/all_samples_aligned_read.tsv 10
+done < test_zinb.txt
+# skip first line. we already did it
+tail -n +2 zinb_inputfiles.txt > zinb_inputfiles2.txt
+
+while read line
+do
+outputFile=$(basename ${line})
+sbatch -c 10 -t 0-11:59 -p short --mem=30G scripts/run_zinb.bash ${line} zinb_ouptut/${outputFile}_zinb_out.tsv /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/teddy_metadata_20190821_with_GRS2.csv /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/aligned_read_per_sample/all_samples_aligned_read.tsv 10
+done < zinb_inputfiles2.txt
+
+```
+
+```{r}
+#Get jobs that didn't finish
+
+output_files = list.files("zinb_ouptut")
+output_files = gsub("_zinb_out.tsv","",output_files)
+
+inputFiles = read.table("zinb_inputfiles.txt",header=FALSE)
+inputFiles$base = basename(inputFiles[,1])
+
+timedOut = setdiff(inputFiles$base,output_files)
+
+filesToDo = inputFiles[match(timedOut,inputFiles$base),]
+write.table(filesToDo[,1],col.names=FALSE,row.names=FALSE,quote=FALSE,file="zinb_inputfiles_timedOut.txt")
+```
+
+#Now rerun timed out
+
+```{bash}
+while read line
+do
+outputFile=$(basename ${line})
+sbatch -c 15 -t 1-00:00 -p medium --mem=30G scripts/run_zinb.bash ${line} zinb_ouptut/${outputFile}_zinb_out.tsv /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/teddy_metadata_20190821_with_GRS2.csv /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/aligned_read_per_sample/all_samples_aligned_read.tsv 15
+done < zinb_inputfiles_timedOut.txt
+
+```
+
+
+
+#Get the genes in each file so we can get the abundances of individual genes easily
+
+```{bash}
+cd /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis
+ls /n/scratch3/users/l/ldp9/_RESTORE/TEDDY_raw_alignments_combined/raw_abundance_matrix_all_samples_split_by_genes/raw_abundance_matrix_all_samples_split_* | grep -v "_filtered.tsv" | while read line; do awk '{print $1,FILENAME}' ${line} ; done > raw_abundance_mapping_files.txt
+```
+
+
+#Next lets see if we have significant genes?!
+
+```{r}
+library(data.table)
+setwd("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis")
+myfiles = list.files("zinb_ouptut",pattern="_zinb_out.tsv",full.names = TRUE)
+
+dt_list = lapply(myfiles, function(x) fread(x,sep="\t",header=TRUE))
+
+all_dts = rbindlist(dt_list)
+all_df = as.data.frame(all_dts)
+length(which(is.na(all_df[,1]))) # 22444 NAs. didn't converge
+length(which(is.na(all_df[,1])))/nrow(all_df) # 22444 NAs. about 0.265%
+
+all_df = all_df[!is.na(all_df[,1]),]
+
+all_df = all_df[order(all_df$pvalue),]
+all_df$BH = p.adjust(all_df$pvalue,method="BH")
+all_df$bonferroni = p.adjust(all_df$pvalue,method="bonferroni")
+all_df$BY = p.adjust(all_df$pvalue,method="BY")
+
+# get BY significant less than 0.1
+all_df_sig = all_df[all_df$BY < 0.1,] # 216 significant genes
+
+# lets see what a "significant gene actually loooks like"
+
+
+gene_to_file_mapping = fread("raw_abundance_mapping_files.txt",header=FALSE,data.table=FALSE)
+# remove "gene"
+gene_to_file_mapping = gene_to_file_mapping[-match("gene",gene_to_file_mapping[,1]),]
+num_aliged_reads_per_sample = read.table("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/aligned_read_per_sample/all_samples_aligned_read.tsv",sep="\t",header=FALSE)
+gene_to_file_mapping_sig = gene_to_file_mapping[match(all_df_sig$feature,gene_to_file_mapping$V1),]
+gene_to_file_mapping_sig_split = split(gene_to_file_mapping_sig,gene_to_file_mapping_sig$V2)
+suffixes = gene_to_file_mapping_sig[,2]
+suffixes = unique(suffixes)
+
+myMat = matrix(0,nrow=nrow(all_df_sig),ncol=13159)
+geneName_list = rep('',nrow(all_df_sig))
+
+geneCounter = 0
+
+for (prefixNum in 1:length(suffixes)) {
+  print(prefixNum)
+  x = gene_to_file_mapping_sig_split[[prefixNum]]
+  genes_temp = x[,1]
+  genes_temp = paste(genes_temp,collapse="|")
+  genes_temp = paste("'",genes_temp,"'",sep="")
+  prefix_temp = unique(x[,2])
+  #df_temp = fread(cmd = paste("grep -E ",genes_temp," /n/scratch3/users/s/sez10/_RESTORE/TEDDY/parsed_data/",prefix_temp,sep=""),sep=",",header=FALSE,data.table=FALSE)
+  df_temp = fread(cmd = paste("grep -E ",genes_temp," ",prefix_temp,sep=""),sep="\t",header=FALSE,data.table=FALSE)
+  rownames(df_temp) = df_temp[,1]
+  df_temp = df_temp[,-1]
+  df_temp = as.matrix(df_temp)
+  if(geneCounter == 0) {
+    myMat[1:nrow(df_temp),] = df_temp
+    geneName_list[1:nrow(df_temp)] = rownames(df_temp)
+  } else {
+    myMat[seq(geneCounter+1,geneCounter+nrow(df_temp)),] = df_temp
+    geneName_list[seq(geneCounter+1,geneCounter+nrow(df_temp))] = rownames(df_temp)
+  }
+  geneCounter = geneCounter + nrow(df_temp)
+}
+
+rownames(myMat) = geneName_list
+myMat = as.data.frame(myMat)
+# load in column Names
+abundance_colNames = fread("/n/scratch3/users/l/ldp9/_RESTORE/TEDDY_raw_alignments_combined/raw_abundance_matrix_all_samples_split_by_genes/raw_abundance_matrix_all_samples_split_aa",sep="\t",nrow=1,header=FALSE,data.table=FALSE)
+abundance_colNames = abundance_colNames[,-1]
+colnames(myMat) = abundance_colNames
+write.csv(myMat,file="zinb_sig_genes_normalized_abundance.csv")
+# normalize data
+num_aliged_reads_per_sample_ordered = num_aliged_reads_per_sample[match(colnames(myMat),num_aliged_reads_per_sample[,1]),]
+myMat_normalized = matrix(0,ncol=ncol(myMat),nrow=nrow(myMat))
+for(x in 1:ncol(myMat_normalized)) {
+  myMat_normalized[,x] = myMat[,x]/num_aliged_reads_per_sample_ordered[x,2]
+}
+rownames(myMat_normalized) = rownames(myMat)
+colnames(myMat_normalized) = colnames(myMat)
+
+
+# make sure that I did this correctly. lets get some random genes and compare to final df above
+
+#sig_gene_abundances_all_samples = lapply(suffixes[1:5], function(x) {
+#  print(x)
+#  abundance_temp = fread(paste("/n/scratch3/users/s/sez10/_RESTORE/TEDDY/parsed_data",x,sep="/"),sep=",",header=TRUE)
+#  abundance_temp_sig = abundance_temp[genename%in%all_df_sig$feature,]
+#  return(abundance_temp_sig)
+#})
+
+#sig_gene_abundances_all_samples = rbindlist(sig_gene_abundances_all_samples)
+#sig_gene_abundances_all_samples = as.data.frame(sig_gene_abundances_all_samples)
+#sig_gene_abundances_all_samples = sig_gene_abundances_all_samples[,-1]
+#rownames(sig_gene_abundances_all_samples) = sig_gene_abundances_all_samples[,1]
+#sig_gene_abundances_all_samples = sig_gene_abundances_all_samples[,-1]
+
+#all.equal(sig_gene_abundances_all_samples,myMat[rownames(sig_gene_abundances_all_samples),])
+
+# rank normalize
+library(RNOmni)
+myMat_rankNorm = apply(myMat_normalized,1, function(x) {
+    return(RankNorm(x))
+  })
+myMat_rankNorm = t(myMat_rankNorm)
+
+# first adjust values to log normalize
+myMat_log = apply(myMat_normalized,1, function(x) {
+  min_val = min(x[x>0])
+  x = x + min_val
+  x = log(x)
+  return(x)
+})
+myMat_log = t(myMat_log)
+
+all.equal(colnames(myMat_log),colnames(myMat_rankNorm))
+all.equal(rownames(myMat_log),rownames(myMat_rankNorm))
+
+# load in metadata for all samples
+tedd_metadata_allsamples = read.csv("teddy_metadata_20190821_with_GRS2.csv")
+
+# find samples we have abundance data and metadata for
+metadata_abundance_samples = intersect(tedd_metadata_allsamples$Run,colnames(myMat_log))
+
+tedd_metadata_allsamples = tedd_metadata_allsamples[match(metadata_abundance_samples,tedd_metadata_allsamples$Run),]
+myMat_log = myMat_log[,metadata_abundance_samples]
+all.equal(tedd_metadata_allsamples$Run,colnames(myMat_log))
+#order by significance
+myMat_log = myMat_log[all_df_sig$feature,]
+# make abundance of each gene as a function of time
+library(ggplot2)
+
+# do the same thing for the non-log normalized values
+myMat_normalized_sub = myMat_normalized[,metadata_abundance_samples]
+myMat_normalized_sub = myMat_normalized_sub[all_df_sig$feature,]
+# also do the same thing for Rank Normalized
+
+myMat_rankNorm = myMat_rankNorm[,metadata_abundance_samples]
+myMat_rankNorm = myMat_rankNorm[all_df_sig$feature,]
+
+
+pdf("zinb_sig_hist.pdf")
+sapply(rownames(myMat_log), function(geneName) {
+  gene_temp_abundance = myMat_log[geneName,,drop=FALSE]
+  # remove people who already have T1D
+  currently_hasT1D = tedd_metadata_allsamples$age_at_collection >= tedd_metadata_allsamples$age_t1d
+  metadata_t1d_status = tedd_metadata_allsamples$t1d_sero_control
+  metadata_t1d_status[metadata_t1d_status == "seroconverted"] = "control"
+  abundance_temp_dataframe = data.frame(abundance=as.numeric(gene_temp_abundance),age=tedd_metadata_allsamples$age_at_collection,t1d_status=metadata_t1d_status,currently_hasT1D)
+  # remove people who already have T1D
+  abundance_temp_dataframe = abundance_temp_dataframe[-which(abundance_temp_dataframe$currently_hasT1D == TRUE),]
+  myplot = ggplot(abundance_temp_dataframe,aes(x=abundance,after_stat(density),color=t1d_status)) + ggtitle(label=geneName) + geom_freqpoly(binwidth = 1)
+  print(myplot)
+})
+dev.off()
+
+pdf("zinb_sig_zeroCounts.pdf")
+sapply(rownames(myMat_normalized_sub), function(geneName) {
+  gene_temp_abundance = myMat_normalized_sub[geneName,,drop=FALSE]
+  # remove people who already have T1D
+  currently_hasT1D = tedd_metadata_allsamples$age_at_collection >= tedd_metadata_allsamples$age_t1d
+  metadata_t1d_status = tedd_metadata_allsamples$t1d_sero_control
+  metadata_t1d_status[metadata_t1d_status == "seroconverted"] = "control"
+  abundance_temp_dataframe = data.frame(abundance=as.numeric(gene_temp_abundance),age=tedd_metadata_allsamples$age_at_collection,t1d_status=metadata_t1d_status,currently_hasT1D)
+  abundance_temp_dataframe = abundance_temp_dataframe[-which(abundance_temp_dataframe$currently_hasT1D == TRUE),]
+  control_abundances = abundance_temp_dataframe[abundance_temp_dataframe$t1d_status=="control","abundance"]
+  t1D_abundances = abundance_temp_dataframe[abundance_temp_dataframe$t1d_status=="t1d","abundance"]
+  prop_zeros_control = sum(control_abundances==0)/length(control_abundances)
+  prop_zeros_t1d = sum(t1D_abundances==0)/length(t1D_abundances)
+  barplot(c(prop_zeros_control,prop_zeros_t1d),main=paste("Proportion of 0 counts",geneName), names.arg=c("Ctrl","T1D"))
+})
+dev.off()
+
+
+pdf("zinb_sig_scatter.pdf")
+sapply(rownames(myMat_log), function(geneName) {
+  gene_temp_abundance = myMat_log[geneName,,drop=FALSE]
+  # remove people who already have T1D
+  currently_hasT1D = tedd_metadata_allsamples$age_at_collection >= tedd_metadata_allsamples$age_t1d
+  metadata_t1d_status = tedd_metadata_allsamples$t1d_sero_control
+  metadata_t1d_status[metadata_t1d_status == "seroconverted"] = "control"
+  abundance_temp_dataframe = data.frame(abundance=as.numeric(gene_temp_abundance),age=tedd_metadata_allsamples$age_at_collection,t1d_status=metadata_t1d_status,currently_hasT1D)
+  # remove people who already have T1D
+  abundance_temp_dataframe = abundance_temp_dataframe[-which(abundance_temp_dataframe$currently_hasT1D == TRUE),]
+  myplot = ggplot(abundance_temp_dataframe,aes(x=age,y=abundance,color=t1d_status)) + geom_point(size=0.3) + geom_smooth(method="loess") + ggtitle(label=geneName)
+  print(myplot)
+})
+dev.off()
+
+
+pdf("zinb_sig_boxplot.pdf")
+sapply(rownames(myMat_log), function(geneName) {
+  gene_temp_abundance = myMat_log[geneName,,drop=FALSE]
+  # remove people who already have T1D
+  currently_hasT1D = tedd_metadata_allsamples$age_at_collection >= tedd_metadata_allsamples$age_t1d
+  metadata_t1d_status = tedd_metadata_allsamples$t1d_sero_control
+  metadata_t1d_status[metadata_t1d_status == "seroconverted"] = "control"
+  abundance_temp_dataframe = data.frame(abundance=as.numeric(gene_temp_abundance),age=tedd_metadata_allsamples$age_at_collection,t1d_status=metadata_t1d_status,currently_hasT1D)
+  # remove people who already have T1D
+  abundance_temp_dataframe = abundance_temp_dataframe[-which(abundance_temp_dataframe$currently_hasT1D == TRUE),]
+  myplot = ggplot(abundance_temp_dataframe,aes(x=t1d_status,y=abundance)) + geom_boxplot() + ggtitle(label=geneName)
+  print(myplot)
+})
+dev.off()
+
+pdf("zinb_sig_boxplot_rankNorm.pdf")
+sapply(rownames(myMat_rankNorm), function(geneName) {
+  gene_temp_abundance = myMat_rankNorm[geneName,,drop=FALSE]
+  # remove people who already have T1D
+  currently_hasT1D = tedd_metadata_allsamples$age_at_collection >= tedd_metadata_allsamples$age_t1d
+  metadata_t1d_status = tedd_metadata_allsamples$t1d_sero_control
+  metadata_t1d_status[metadata_t1d_status == "seroconverted"] = "control"
+  abundance_temp_dataframe = data.frame(abundance=as.numeric(gene_temp_abundance),age=tedd_metadata_allsamples$age_at_collection,t1d_status=metadata_t1d_status,currently_hasT1D)
+  # remove people who already have T1D
+  abundance_temp_dataframe = abundance_temp_dataframe[-which(abundance_temp_dataframe$currently_hasT1D == TRUE),]
+  myplot = ggplot(abundance_temp_dataframe,aes(x=t1d_status,y=abundance)) + geom_boxplot() + ggtitle(label=geneName)
+  print(myplot)
+})
+dev.off()
+
+
+```
+
+
+
+
+
+
+
+
+
+#Upload files to bucket after putting them in tar files
+
+```{bash}
+sbatch -c 1 -t 0-11:59 -p short --mem=10G upload_to_bucket.bash healthy_pre-t1d-all_HLA.tar
+sbatch -c 1 -t 0-11:59 -p short --mem=10G upload_to_bucket.bash healthy_pre-t1d-DR3_DR4_only.tar
+sbatch -c 1 -t 0-11:59 -p short --mem=10G upload_to_bucket.bash healthy_pre-t1d-not_DR3_DR4.tar
+
+# put files from bucket onto cloud example
+curl -X GET https://objectstorage.eu-zurich-1.oraclecloud.com/p/_x7tCMxB5He1XJ9UI6SVAMrdXYCClDBVzSx-PRqycPCzi6PAVmiJH9qnfQ691FWw/n/zrjwsvatolrg/b/TEDDY_VOE_input_March19_2022/o/healthy_pre-t1d-DR3_DR4_only.tar --output healthy_pre-t1d-DR3_DR4_only.tar
+```
+
+```{bash}
+# on cloud. run quantvoe initial regressions. using node with 64 cpus and 683 memory.
+
+# mount commands
+sudo mkdir -p /mnt/NFS
+sudo mount 10.0.1.131:/NFS /mnt/NFS
+cd /mnt/NFS/TEDDY_voe_only_march_19_2022
+
+# screen into node with command "screen"
+#./config.sh healthy_pre-t1d-all_HLA 105 # this command is one per instance
+./config.sh healthy_pre-t1d-all_HLA 126 # this command is one per instance
+./config.sh healthy_pre-t1d-DR3_DR4_only 63
+./config.sh healthy_pre-t1d-not_DR3_DR4 63
+# exit screen with ctrl+a d
+
+# to resume screen screen -r if multiple you can do with id e.g. screen -r 10835
+# screen IDs screen -ls
+
+```
+
+#Put things from cloud to bucket
+
+```{bash}
+# this is done from the cloud
+./put_output_in_bucket.bash healthy_pre-t1d-all_HLA healthy_pre-t1d-all_HLA_output 
+./put_output_in_bucket.bash healthy_pre-t1d-DR3_DR4_only healthy_pre-t1d-DR3_DR4_only_output 
+./put_output_in_bucket.bash healthy_pre-t1d-not_DR3_DR4 healthy_pre-t1d-not_DR3_DR4_output 
+
+# this is done on O2 cluster when I want to move the folder in the bucket to O2
+#./scripts/get_files_from_bucket.bash association_output_full_names.txt healthy_pre-t1d-all_HLA_output /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/initial_association_output
+#source activate r_env
+#Rscript scripts/parse_initial_association_output.R /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/initial_association_output/healthy_pre-t1d-all_HLA_output
+
+sbatch -c 1 -t 0-0:20 -p short --mem=10G scripts/get_files_from_bucket_parse_initial_associations.bash association_output_full_names.txt healthy_pre-t1d-all_HLA_output /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/initial_association_output
+
+sbatch -c 1 -t 0-00:20 -p short --mem=10G scripts/get_files_from_bucket_parse_initial_associations.bash association_output_full_names.txt healthy_pre-t1d-DR3_DR4_only_output /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/initial_association_output
+
+sbatch -c 1 -t 0-00:20 -p short --mem=10G scripts/get_files_from_bucket_parse_initial_associations.bash association_output_full_names.txt healthy_pre-t1d-not_DR3_DR4_output /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/initial_association_output
+
+
+# compute vibrations
+run_vibrations.R /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/normalized_alignments/parsed_data/healthy_pre-t1d-all_HLA /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/initial_association_output/healthy_pre-t1d-all_HLA_output/healthy_pre-t1d-all_HLA_output_full_association_output_adjusted.rds /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/vibrations_output/healthy_pre-t1d-all_HLA
+```
+

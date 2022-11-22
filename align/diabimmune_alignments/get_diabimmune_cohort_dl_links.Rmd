@@ -1,0 +1,49 @@
+---
+title: "get_diabimmune_cohort"
+author: "Sam Zimmerman"
+date: "6/7/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{python}
+import urllib2
+import re
+html = urllib2.urlopen("https://diabimmune.broadinstitute.org/diabimmune/data/20/")
+text = html.read()
+plaintext = text.decode('utf8')
+links = re.findall("href=[\"\'](.*?)[\"\']", plaintext)
+w = open('/Users/samuelzimmerman/Dropbox (HMS)/Kostic_Lab/datasets/TEDDY/diabimmune_dl_links.txt','w')
+for x in links:
+  w.write(x+"\n")
+  
+w.close()
+```
+
+setup input file
+
+```{r}
+diabimmune_links = read.table("/Users/samuelzimmerman/Dropbox (HMS)/Kostic_Lab/datasets/TEDDY/diabimmune_dl_links.txt",header=F)
+diabimmune_links = diabimmune_links$V1
+diabimmune_links_df = data.frame(diabimmune_links,sample=sapply(strsplit(basename(diabimmune_links),split="_"),function(x) x[1]))
+diabimmune_links_df_split = split(diabimmune_links_df,diabimmune_links_df$sample)
+
+diabimmune_combined_df = sapply(diabimmune_links_df_split, function(mydf) {
+  # first get sample
+  sample = unique(mydf$sample)
+  # next remove unpaired data
+  if(length(grep("unpaired.fastq.gz",mydf$diabimmune_links)) > 0) {
+    mydf = mydf[-grep("unpaired.fastq.gz",mydf$diabimmune_links),]
+  }
+  link_order = sort(mydf$diabimmune_links)
+  link_order_linked = paste(link_order[1],link_order[2],sep=",")
+  return(c(sample,link_order_linked))
+})
+diabimmune_combined_df = t(diabimmune_combined_df)
+write.table(diabimmune_combined_df,file="/Users/samuelzimmerman/Dropbox (HMS)/Kostic_Lab/datasets/TEDDY/diabimmune_dl_links_with_sample_names.txt",sep="\t",quote=F,col.names=F,row.names=F)
+
+```
+
