@@ -1,0 +1,386 @@
+---
+title: "genotype_QC"
+author: "Sam Zimmerman"
+date: "9/28/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+The goal is to follow the quality control steps layed out in the manuscript "A combined risk score enhances prediction of type 1 diabetes among susceptible children" 
+
+
+#First we are going to run PLINK to filter genotypes with SNP genotype missingness (<1%), Hardy–Weinberg equilibrium (P<1×10−6) and minor allele frequency (<1%).
+
+```{bash}
+# first get SNP genotype missingness and minor allele frequency statistics for each genotype
+
+cd /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_genotype_analysis
+# remove SNPs where missing genotypes > 0.99%, MAF is less than 1% 
+/home/sez10/kostic_lab/software/plink --bfile phg001461.v1.NIDDK_TEDDY_Cohort_v2.genotype-calls-matrixfmt.c1/SNP_masked --geno 0.0099 --maf 0.01 --out missing_maf_filtered_output/missing_maf_filtered_output --make-bed
+# 160444 variants loaded from .bim file.
+# 13823 people (6514 males, 7309 females) loaded from .fam.
+#7867 variants removed due to missing genotype data (--geno).
+#26964 variants removed due to minor allele threshold(s)
+# 125613 variants and 13823 people pass filters and QC.
+
+
+# exclude SNPs where HWE p-value is less than 1X10-6 but don't do this for HLA SNPs (chromosome 6: 27–35 megabase pairs)
+/home/sez10/kostic_lab/software/plink --bfile missing_maf_filtered_output/missing_maf_filtered_output --hwe 0.000001 --out hwe_missing_maf_filtered_output/hwe_missing_maf_filtered_output --make-bed
+# 124501 variants and 13823 people pass filters and QC.
+
+```
+
+##I don't want to do the HWE test on variants in HLA (chromosome 6: 27–35 megabase pairs) so I am going to get those variants back. 
+#First I need to get the name of the HLA variants
+
+```{r}
+library(snpStats)
+maf_missing_filt = read.plink(bed="missing_maf_filtered_output/missing_maf_filtered_output.bed", bim="missing_maf_filtered_output/missing_maf_filtered_output.bim", fam="missing_maf_filtered_output/missing_maf_filtered_output.fam")
+
+# get SNPs located in HLA regions.
+# first get chromosome 6
+maf_missing_filt_chr6 = maf_missing_filt$map[maf_missing_filt$map$chromosome == 6,]
+# then get snps in chromosome 6 between 27 and 35 megabase pairs
+maf_missing_filt_HLA_region = maf_missing_filt_chr6[maf_missing_filt_chr6$position >= 27000000 & maf_missing_filt_chr6$position <= 35000000,]
+maf_missing_filt_HLA_region_snp_names = maf_missing_filt_HLA_region$snp.name
+write.table(maf_missing_filt_HLA_region_snp_names,file="missing_maf_filtered_output/maf_missing_filt_HLA_region_snp_names.txt",quote=F,col.names=F,row.names=F)
+
+
+maf_missing_hwe_filt = read.plink(bed="hwe_missing_maf_filtered_output/hwe_missing_maf_filtered_output.bed", bim="hwe_missing_maf_filtered_output/hwe_missing_maf_filtered_output.bim", fam="hwe_missing_maf_filtered_output/hwe_missing_maf_filtered_output.fam")
+maf_missing_hwe_filt_chr6 = maf_missing_hwe_filt$map[maf_missing_hwe_filt$map$chromosome == 6,]
+maf_missing_hwe_filt_HLA_region = maf_missing_hwe_filt_chr6[maf_missing_hwe_filt_chr6$position >= 27000000 & maf_missing_hwe_filt_chr6$position <= 35000000,]
+maf_missing_hwe_filt_HLA_region_SNP_names = maf_missing_hwe_filt_HLA_region$snp.name
+write.table(maf_missing_hwe_filt_HLA_region_SNP_names,file="hwe_missing_maf_filtered_output/maf_missing_hwe_filt_HLA_region_SNP_names.txt",quote=F,col.names=F,row.names=F)
+
+```
+
+# Next I am going to extract the HLA variants from the missing_maf_filtered_output/missing_maf_filtered_output output
+
+```{bash}
+/home/sez10/kostic_lab/software/plink --bfile missing_maf_filtered_output/missing_maf_filtered_output --extract missing_maf_filtered_output/maf_missing_filt_HLA_region_snp_names.txt --make-bed --out missing_maf_filtered_output/maf_missing_filt_HLA_region
+```
+
+#Next I am going to REMOVE the HLA variants from the hwe_missing_maf_filtered_output/hwe_missing_maf_filtered_output output. I don't want duplicate SNPs
+
+```{bash}
+/home/sez10/kostic_lab/software/plink --bfile hwe_missing_maf_filtered_output/hwe_missing_maf_filtered_output --exclude hwe_missing_maf_filtered_output/maf_missing_hwe_filt_HLA_region_SNP_names.txt --make-bed --out hwe_missing_maf_filtered_output/maf_missing_hwe_HLA_filtered_output
+```
+
+##Now I am going to merge hwe_missing_maf_filtered_output/maf_missing_hwe_HLA_filtered_output and missing_maf_filtered_output/maf_missing_filt_HLA_region together.
+
+```{bash}
+# not HLA_regions_to_merge_file.txt has missing_maf_filtered_output/maf_missing_filt_HLA_region inside of it.  
+
+/home/sez10/kostic_lab/software/plink --bfile hwe_missing_maf_filtered_output/maf_missing_hwe_HLA_filtered_output --merge-list HLA_regions_to_merge_file.txt --out genotype_filtered_with_HLA_output/genotype_filtered_with_HLA_output
+```
+
+#Final number of genotypes are 124,656
+
+##Next step is to remove bad samples
+
+#do checks for sex discordance (for example labels say female but they have 1 X and 1 Y chromosome) and individual genotype missingness (<1%) 
+
+```{bash}
+#--split-x already done so no need to redo
+#/home/sez10/kostic_lab/software/plink --bfile genotype_filtered_with_HLA_output/genotype_filtered_with_HLA_output --split-x b37 --make-bed
+
+
+# get pairs in LD and use these to check gender
+/home/sez10/kostic_lab/software/plink --bfile genotype_filtered_with_HLA_output/genotype_filtered_with_HLA_output --indep-pairphase 20000 2000 0.5
+
+### filter PLINK data to only include those in LD
+/home/sez10/kostic_lab/software/plink --bfile genotype_filtered_with_HLA_output/genotype_filtered_with_HLA_output --extract plink.prune.in --make-bed --out genotype_filtered_with_HLA_output/genotype_filtered_with_HLA_output_LD_pruned
+
+# calculate MAF report
+/home/sez10/kostic_lab/software/plink --bfile genotype_filtered_with_HLA_output/genotype_filtered_with_HLA_output_LD_pruned --freqx --out genotype_filtered_with_HLA_output/genotype_filtered_with_HLA_output_LD_pruned.frqx
+
+# now check sex using genotypes in LD
+/home/sez10/kostic_lab/software/plink --bfile genotype_filtered_with_HLA_output/genotype_filtered_with_HLA_output_LD_pruned --read-freq genotype_filtered_with_HLA_output/genotype_filtered_with_HLA_output_LD_pruned.frqx.frqx --check-sex 
+
+# 106 problems detected. output plink.sexcheck
+grep "PROBLEM" plink.sexcheck | awk '{print $1,$2}' > sex_discordance_problem.txt
+
+# remove samples
+/home/sez10/kostic_lab/software/plink --bfile genotype_filtered_with_HLA_output/genotype_filtered_with_HLA_output --remove sex_discordance_problem.txt --out genotype_filtered_with_HLA_output_no_discordance/genotype_filtered_with_HLA_output_no_discordance --make-bed # 13717 people remaining
+```
+
+#Check for individual genotype missingness (<1%)
+
+```{bash}
+/home/sez10/kostic_lab/software/plink --bfile genotype_filtered_with_HLA_output_no_discordance/genotype_filtered_with_HLA_output_no_discordance --mind 0.0099 --out genotype_filtered_with_HLA_output_no_discordance_no_missing/genotype_filtered_with_HLA_output_no_discordance_no_missing --make-bed
+# 124656 variants and 13524 people pass filters and QC.
+```
+
+```{r}
+library(snpStats)
+maf_missing_filt = read.plink(bed="missing_maf_filtered_output/missing_maf_filtered_output.bed", bim="missing_maf_filtered_output/missing_maf_filtered_output.bim", fam="missing_maf_filtered_output/missing_maf_filtered_output.fam")
+
+```
+
+
+##Now we are going to use eigensoft to remove sample outliers
+
+```{bash}
+conda activate eigensoft
+# first convert plink bed, bim, fam files to ped
+/home/sez10/kostic_lab/software/plink --bfile genotype_filtered_with_HLA_output_no_discordance_no_missing/genotype_filtered_with_HLA_output_no_discordance_no_missing --recode --output-missing-phenotype 1 --out genotype_filtered_with_HLA_output_no_discordance_no_missing/genotype_filtered_with_HLA_output_no_discordance_no_missing_ped
+## convert from ped to eigenstrat format. parfile is created manually
+cd genotype_filtered_with_HLA_output_no_discordance_no_missing
+convertf -p parfile.ped
+
+# create custom parfile and run smartpca
+sbatch -c 10 -t 2-00:00 -p medium --mem=50GB ../run_smartpca.bash smart_pca_parfile.txt /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_genotype_analysis/genotype_filtered_with_HLA_output_no_discordance_no_missing
+
+# 76 outlier samples removed
+# get the sample names to remove
+awk '{print $3}' genotype_filtered_with_HLA_output_no_discordance_no_missing_ped.outliers_removed | awk -F ':' '{print $1"\t"$2}' > subject_outliers.txt
+
+### remove outliers from plink BED files
+cd ..
+/home/sez10/kostic_lab/software/plink --bfile genotype_filtered_with_HLA_output_no_discordance_no_missing/genotype_filtered_with_HLA_output_no_discordance_no_missing --remove genotype_filtered_with_HLA_output_no_discordance_no_missing/subject_outliers.txt --make-bed --out genotype_filtered_with_HLA_output_no_discordance_no_missing/genotype_filtered_with_HLA_output_no_discordance_no_missing_no_outliers
+```
+
+##Lets impute. First lets find SNPs that we need to impute on
+
+```{r}
+allSNPs = read.table("snps_to_calc_grs.txt")
+snps_i_have = read.table("maf_filtered_output_grs_vars/maf_filtered_output_grs_vars.bim")
+
+needed_SNPs = setdiff(allSNPs[,1],snps_i_have[,2])
+write.table(needed_SNPs,file="maf_filtered_output_grs_vars/snps_to_impute.txt",col.names=F,row.names=F,quote=F)
+# 41 snps to impute
+```
+
+
+#Use IMPUTE2 to impute
+
+```{bash}
+# convert genotype data to VCF format. remove insertion and deletions.
+/home/sez10/kostic_lab/software/plink --snps-only just-acgt --bfile genotype_filtered_with_HLA_output_no_discordance_no_missing/genotype_filtered_with_HLA_output_no_discordance_no_missing_no_outliers --recode vcf --out imputation/genotype_filtered_with_HLA_output_no_discordance_no_missing_no_outliers_vcf
+
+### use conform-gt on my genotype VCF to its consistent with reference VCF files
+
+cd imputation
+# convert reference vcf to bref format
+sbatch -c 1 -t 0-01:00 -p short --mem=5GB convert_vcf_to_bref.bash beagle_VCF_files/chr6.1kg.phase3.v5a.vcf.gz beagle_VCF_files/chr6.1kg.phase3.v5a.bref3
+sbatch -c 1 -t 0-01:00 -p short --mem=5GB convert_vcf_to_bref.bash beagle_VCF_files/chr11.1kg.phase3.v5a.vcf.gz beagle_VCF_files/chr11.1kg.phase3.v5a.bref3
+sbatch -c 1 -t 0-01:00 -p short --mem=5GB convert_vcf_to_bref.bash beagle_VCF_files/chr15.1kg.phase3.v5a.vcf.gz beagle_VCF_files/chr15.1kg.phase3.v5a.bref3
+sbatch -c 1 -t 0-01:00 -p short --mem=5GB convert_vcf_to_bref.bash beagle_VCF_files/chr10.1kg.phase3.v5a.vcf.gz beagle_VCF_files/chr10.1kg.phase3.v5a.bref3
+sbatch -c 1 -t 0-01:00 -p short --mem=5GB convert_vcf_to_bref.bash beagle_VCF_files/chr12.1kg.phase3.v5a.vcf.gz beagle_VCF_files/chr12.1kg.phase3.v5a.bref3
+sbatch -c 1 -t 0-01:00 -p short --mem=5GB convert_vcf_to_bref.bash beagle_VCF_files/chr20.1kg.phase3.v5a.vcf.gz beagle_VCF_files/chr20.1kg.phase3.v5a.bref3
+sbatch -c 1 -t 0-01:00 -p short --mem=5GB convert_vcf_to_bref.bash beagle_VCF_files/chr19.1kg.phase3.v5a.vcf.gz beagle_VCF_files/chr19.1kg.phase3.v5a.bref3
+
+### now for each chromosome make sure the stranding is correct and subset input to be from a single chromosome
+sbatch -c 1 -t 0-01:00 -p short --mem=5GB conform_beagle.bash genotype_filtered_with_HLA_output_no_discordance_no_missing_no_outliers_vcf.vcf 6 beagle_VCF_files beagle_conformed_input_data
+sbatch -c 1 -t 0-01:00 -p short --mem=5GB conform_beagle.bash genotype_filtered_with_HLA_output_no_discordance_no_missing_no_outliers_vcf.vcf 11 beagle_VCF_files beagle_conformed_input_data
+sbatch -c 1 -t 0-01:00 -p short --mem=5GB conform_beagle.bash genotype_filtered_with_HLA_output_no_discordance_no_missing_no_outliers_vcf.vcf 15 beagle_VCF_files beagle_conformed_input_data
+sbatch -c 1 -t 0-01:00 -p short --mem=5GB conform_beagle.bash genotype_filtered_with_HLA_output_no_discordance_no_missing_no_outliers_vcf.vcf 10 beagle_VCF_files beagle_conformed_input_data
+sbatch -c 1 -t 0-01:00 -p short --mem=5GB conform_beagle.bash genotype_filtered_with_HLA_output_no_discordance_no_missing_no_outliers_vcf.vcf 12 beagle_VCF_files beagle_conformed_input_data
+sbatch -c 1 -t 0-01:00 -p short --mem=5GB conform_beagle.bash genotype_filtered_with_HLA_output_no_discordance_no_missing_no_outliers_vcf.vcf 20 beagle_VCF_files beagle_conformed_input_data
+sbatch -c 1 -t 0-01:00 -p short --mem=5GB conform_beagle.bash genotype_filtered_with_HLA_output_no_discordance_no_missing_no_outliers_vcf.vcf 19 beagle_VCF_files beagle_conformed_input_data
+
+# run imputation
+sbatch -c 5 -t 0-02:00 -p short --mem=50GB run_beagel.bash beagle_conformed_input_data/genotype_filtered_with_HLA_output_no_discordance_no_missing_no_outliers_chr beagle_VCF_files plink_map_files 6 29000000 34000000 beagle_output 5
+
+sbatch -c 5 -t 0-02:00 -p short --mem=50GB run_beagel.bash beagle_conformed_input_data/genotype_filtered_with_HLA_output_no_discordance_no_missing_no_outliers_chr beagle_VCF_files plink_map_files 11 1 5000000 beagle_output 5
+
+sbatch -c 5 -t 0-02:00 -p short --mem=50GB run_beagel.bash beagle_conformed_input_data/genotype_filtered_with_HLA_output_no_discordance_no_missing_no_outliers_chr beagle_VCF_files plink_map_files 15 77000000 82000000 beagle_output 5
+
+sbatch -c 5 -t 0-02:00 -p short --mem=50GB run_beagel.bash beagle_conformed_input_data/genotype_filtered_with_HLA_output_no_discordance_no_missing_no_outliers_chr beagle_VCF_files plink_map_files 10 88000000 93000000 beagle_output 5
+
+sbatch -c 5 -t 0-02:00 -p short --mem=50GB run_beagel.bash beagle_conformed_input_data/genotype_filtered_with_HLA_output_no_discordance_no_missing_no_outliers_chr beagle_VCF_files plink_map_files 10 3000000 8000000 beagle_output 5
+
+sbatch -c 5 -t 0-02:00 -p short --mem=50GB run_beagel.bash beagle_conformed_input_data/genotype_filtered_with_HLA_output_no_discordance_no_missing_no_outliers_chr beagle_VCF_files plink_map_files 12 51000000 56000000 beagle_output 5
+
+sbatch -c 5 -t 0-02:00 -p short --mem=50GB run_beagel.bash beagle_conformed_input_data/genotype_filtered_with_HLA_output_no_discordance_no_missing_no_outliers_chr beagle_VCF_files plink_map_files 12 7000000 12000000 beagle_output 5
+
+sbatch -c 5 -t 0-02:00 -p short --mem=50GB run_beagel.bash beagle_conformed_input_data/genotype_filtered_with_HLA_output_no_discordance_no_missing_no_outliers_chr beagle_VCF_files plink_map_files 20 1 5000000 beagle_output 5
+
+sbatch -c 5 -t 0-02:00 -p short --mem=50GB run_beagel.bash beagle_conformed_input_data/genotype_filtered_with_HLA_output_no_discordance_no_missing_no_outliers_chr beagle_VCF_files plink_map_files 19 7000000 12000000 beagle_output 5
+
+# create index files
+module load bcftools/1.13
+bcftools index chr6_29000000_34000000_imputed.vcf.gz
+for x in *.vcf.gz; do bcftools index $x; done
+## lastly combine vcf files into a single file
+bcftools concat chr6_29000000_34000000_imputed.vcf.gz chr10_3000000_8000000_imputed.vcf.gz chr10_88000000_93000000_imputed.vcf.gz chr11_1_5000000_imputed.vcf.gz chr12_7000000_12000000_imputed.vcf.gz chr12_51000000_56000000_imputed.vcf.gz chr15_77000000_82000000_imputed.vcf.gz chr19_7000000_12000000_imputed.vcf.gz chr20_1_5000000_imputed.vcf.gz --output combind_imputed.vcf.gz
+
+## filter vcf to includ SNPs of interest
+module load gcc/6.2.0 vcftools/0.1.16
+vcftools --gzvcf combind_imputed.vcf.gz --snps ../../snps_to_calc_grs.txt --out combind_imputed_grs_vars.vcf --recode --recode-INFO-all
+
+# now convert to count minor alleles
+/home/sez10/kostic_lab/software/plink --vcf combind_imputed_grs_vars.vcf.recode.vcf --recodeA --out ../../GRS_calcs/minor_allele_counts_imputed --double-id
+# now convert to ped
+/home/sez10/kostic_lab/software/plink --vcf combind_imputed_grs_vars.vcf.recode.vcf --recode --out ../../GRS_calcs/minor_allele_counts_imputed_ped --double-id
+
+```
+
+
+#Subset genotype information to only include SNPs of interest
+
+```{bash}
+mkdir maf_filtered_output_grs_vars
+
+# only include variables that will be used for 
+/home/sez10/kostic_lab/software/plink --bfile genotype_filtered_with_HLA_output_no_discordance_no_missing/genotype_filtered_with_HLA_output_no_discordance_no_missing_no_outliers --extract snps_to_calc_grs.txt --make-bed --out maf_filtered_output_grs_vars/maf_filtered_output_grs_vars
+
+# recode to count minor alleles
+cd GRS_calcs
+/home/sez10/kostic_lab/software/plink --bfile ../maf_filtered_output_grs_vars/maf_filtered_output_grs_vars --recodeA --out minor_allele_counts
+# also make ped output file as well. 
+/home/sez10/kostic_lab/software/plink --bfile ../maf_filtered_output_grs_vars/maf_filtered_output_grs_vars --recode --out minor_allele_counts_ped
+
+```
+
+#Calculate genome risk score
+
+```{r}
+library(reshape2)
+
+# first format input tables
+allele_counts = read.table("minor_allele_counts.raw",header=T)
+rownames(allele_counts) = paste(allele_counts[,1],allele_counts[,2],sep=":")
+allele_counts_only = allele_counts[,-c(1,2,3,4,5,6)]
+colnames(allele_counts_only) = sapply(strsplit(colnames(allele_counts_only),split="_"), function(x) x[1])
+
+# format plink file
+ped_file = read.table("minor_allele_counts_ped.ped")
+map_file = read.table("minor_allele_counts_ped.map")
+rownames(ped_file) = paste(ped_file[,1],ped_file[,2],sep=":")
+# get variant names
+variant_to_match_ped_cols = rep(map_file[,2],each=2)
+ped_file_snp_only = ped_file[,-c(1,2,3,4,5,6)]
+colnames(ped_file_snp_only) = variant_to_match_ped_cols
+
+### now format imputed data
+allele_counts_imputed = read.table("minor_allele_counts_imputed.raw",header=T)
+# correct FID and IID
+allele_counts_imputed[,1] = sapply(strsplit(allele_counts_imputed[,1],split="_"), function(x) x[1])
+allele_counts_imputed[,2] = sapply(strsplit(allele_counts_imputed[,2],split="_"), function(x) paste(x[2],x[3],sep="_"))
+all.equal(as.numeric(allele_counts_imputed[,1]),allele_counts[,1])
+all.equal(allele_counts_imputed[,2],allele_counts[,2])
+rownames(allele_counts_imputed) = paste(allele_counts_imputed[,1],allele_counts_imputed[,2],sep=":")
+allele_counts_imputed = allele_counts_imputed[,-c(1,2,3,4,5,6)]
+colnames(allele_counts_imputed) = sapply(strsplit(colnames(allele_counts_imputed),split="_"), function(x) x[1])
+## now combine 
+all.equal(rownames(allele_counts_imputed),rownames(allele_counts_only))
+allele_counts_all_vars = cbind(allele_counts_only,allele_counts_imputed)
+
+# now read in ped file for imputed data
+ped_file_imputed = read.table("minor_allele_counts_imputed_ped.ped")
+map_file_imputed = read.table("minor_allele_counts_imputed_ped.map")
+# fix first 2 columns of ped file
+ped_file_imputed[,1] = sapply(strsplit(ped_file_imputed[,1],split="_"), function(x) x[1])
+ped_file_imputed[,2] = sapply(strsplit(ped_file_imputed[,2],split="_"), function(x) paste(x[2],x[3],sep="_"))
+rownames(ped_file_imputed) = paste(ped_file_imputed[,1],ped_file_imputed[,2],sep=":")
+# get variant names
+variant_to_match_ped_cols_imputed = rep(map_file_imputed[,2],each=2)
+ped_file_imputed_snp_only = ped_file_imputed[,-c(1,2,3,4,5,6)]
+colnames(ped_file_imputed_snp_only) = variant_to_match_ped_cols_imputed
+all.equal(rownames(ped_file_imputed_snp_only),rownames(ped_file_snp_only))
+ped_file_snp_only_all_snps = cbind(ped_file_imputed_snp_only,ped_file_snp_only)
+ped_file_snp_only_all_snps_wide = reshape2::melt(as.matrix(ped_file_snp_only_all_snps))
+
+
+hla_haploytpes = c("rs9275490","rs17843689","rs9273369","rs17211699","rs9469200","rs10947332","rs1281935","rs62406889","rs28746898","rs12527228","rs1794265","rs9405117","rs16822632","rs117806464")
+hla_alleles = c("03:0X_03:02","01:02_06:02","05:01_02:01","02:01_02:02","05:05_03:01","01:0X_05:01","03:0X_03:01","01:03_06:03","02:01_03:03","04:01_04:02","01:0X_05:03","03:02_03:03","01:02_06:09","01:03_06:01")
+hla_haplotypes_betas = c(2.08,1.39,1.26,0.48,-0.03,-0.46,-0.63,-0.65,-0.76,-0.89,-1.31,-1.43,-2.21,-2.41)
+hla_haplotypes_betas_df = data.frame(marker=hla_haploytpes,allele=hla_alleles,beta=hla_haplotypes_betas)
+# remove rs9275490 from data frame. we can't impute this snp. its not in 1000 genomes reference panel
+hla_haplotypes_betas_df = hla_haplotypes_betas_df[-match("rs9275490",hla_haplotypes_betas_df$marker),]
+
+# make interaction table
+haplotype_interactions = c("05:01_02:01-03:0X_03:02","03:0X_03:01-01:0X_05:01","03:0X_03:02-03:0X_03:02","03:0X_03:01-03:0X_03:02","05:01_02:01-03:0X_03:01","03:0X_03:01-02:01_02:02","04:01_04:02-02:01_02:02","05:01_02:01-01:0X_05:01","05:01_02:01-02:01_02:02","05:01_02:01-05:01_02:01","01:02_06:02-01:02_06:02","05:01_02:01-05:05_03:01","05:01_02:01-01:03_06:03","03:0X_03:02-01:03_06:03","03:0X_03:01-03:0X_03:01","03:02_03:03-03:0X_03:02","03:0X_03:01-05:05_03:01","05:01_02:01-01:02_06:02")
+haplotype_interactions_betas = c(3.63,3.14,2.31,2.16,1.08,1.06,0.61,0.17,0.17,0.05,-0.24,-0.51,-0.65,-0.69,-0.87,-1.15,-1.47,-1.94)
+haplotype_interactions_df = data.frame(interactions=haplotype_interactions,beta=haplotype_interactions_betas)
+haplotype_interactions_df= cbind(haplotype_interactions_df,do.call("rbind",strsplit(haplotype_interactions_df$interactions,split="-")))
+colnames(haplotype_interactions_df)[3] = c("haplotype1")
+colnames(haplotype_interactions_df)[4] = c("haplotype2")
+# remove haplotypes 03:0X_03:02. this is rs9275490 which we can't impute
+haplotype_interactions_df = haplotype_interactions_df[!(haplotype_interactions_df$haplotype1 == "03:0X_03:02" | haplotype_interactions_df$haplotype2 == "03:0X_03:02"),]
+
+# get marker corresponding to haplotye
+haplotype_interactions_df$haplotype1_marker = hla_haplotypes_betas_df[match(haplotype_interactions_df[,3],hla_haplotypes_betas_df$allele),"marker"]
+haplotype_interactions_df$haplotype2_marker = hla_haplotypes_betas_df[match(haplotype_interactions_df[,4],hla_haplotypes_betas_df$allele),"marker"]
+
+
+# make table for non DR-DQ HLAs
+non_DR_DQ_snps = c("rs540653847","rs9271346","rs116522341","rs1281934","rs2567287","rs75658393","rs72848653","rs144530872","rs9269173","rs9500974","rs12189871","rs12153924","rs371250843","rs9259118","rs559242105","rs17214657","rs9378176","rs2524277","rs6934289","rs16899379","rs149663102")
+non_DR_DQ_betas = c(1.78,1.69,1.24,0.90,0.84,0.81,0.78,0.74,0.67,0.63,0.45,0.44,0.39,0.31,0.24,-0.19,-0.49,-0.60,-0.68,-0.83,-0.94)
+non_DR_DQ_allele = c("GC","T","C","G","A","T","T","A","A","T","T","A","T","T","CTA","C","G","A","C","A","T")
+non_DR_DQ_df = data.frame(snp=non_DR_DQ_snps,non_DR_DQ_betas,allele=non_DR_DQ_allele)
+
+# make table for non HLAs
+non_HLA_snp = c("rs3842753","rs2476601","rs2289702","rs653178","rs4948088","rs9924471","rs4759229","rs1893217","rs72928038","rs60888743","rs11170466","rs9981624","rs9388489","rs5763779","rs425105","rs72727394","rs17388568","rs1615504","rs6476839","rs9585056","rs229541","rs2281808","rs1738074","rs56994090","rs10492166","rs3024505","rs2111485","rs3087243","rs12708716","rs144309607","rs61839660","rs41295121")
+non_HLA_betas = c(0.83,0.64,0.28,0.26,0.26,0.22,0.22,0.19,0.18,0.18,0.17,0.17,0.16,0.15,0.15,0.14,0.12,0.12,0.11,0.11,0.10,0.10,-0.08,-0.13,-0.14,-0.15,-0.16,-0.17,-0.19,-0.40,-0.48,-0.71)
+non_HLA_Allele = c("G","A","C","C","C","A","A","G","A","A","T","C","A","A","T","T","A","T","T","C","A","C","T","C","A","A","A","A","G","T","T","T")
+non_HLA_df = data.frame(snp=non_HLA_snp,beta=non_HLA_betas,allele=non_HLA_Allele)
+
+# now that processing is done
+
+# for each subject
+grs_score_list = rep(0, nrow(allele_counts_all_vars))
+for (x in 1:nrow(allele_counts_all_vars)) {
+  individual_sample = allele_counts_all_vars[x,]
+  ID_temp = rownames(individual_sample)
+  # look to see if we have interaction
+  # get all rsIDs where minor allele counts > 1
+  rsID_with_minor_allele = names(individual_sample[which(individual_sample>0)])
+  in_hap1 = haplotype_interactions_df$haplotype1_marker%in%rsID_with_minor_allele
+  in_hap2 = haplotype_interactions_df$haplotype2_marker%in%rsID_with_minor_allele
+  in_hap1_2 = data.frame(in_hap1,in_hap2)
+  are_interactions = which(rowSums(in_hap1_2) == 2)
+  hasInteraction = FALSE
+  if(length(are_interactions) > 0) {
+    hasInteraction = TRUE
+    interaction_beta = haplotype_interactions_df[are_interactions,"beta"]
+    if(length(interaction_beta) >1) {
+      interaction_beta = sum(interaction_beta)
+    }
+  }
+  else { # if no interactions see the HLA snps we have
+    hla_haplotypes_betas_df_allele_counts_temp = cbind(hla_haplotypes_betas_df,t(individual_sample[1,match(hla_haplotypes_betas_df$marker,names(individual_sample))]))
+    beta_hap_sums_temp = sum(hla_haplotypes_betas_df_allele_counts_temp$beta * hla_haplotypes_betas_df_allele_counts_temp[,4])
+  }
+  # get betas for other HLAs
+  # first parse ped_file_snp_only_all_snps_wide to only include samples of interest
+  ped_file_snp_only_all_snps_wide_temp = ped_file_snp_only_all_snps_wide[ped_file_snp_only_all_snps_wide$Var1 == ID_temp,]
+  non_dr_dq_scores = apply(non_DR_DQ_df, 1, function(y) {
+    non_dr_dq_snp_temp = y[1]
+    non_dr_dq_snp_beta_temp = as.numeric(y[2])
+    non_dr_dq_snp_allele_temp = y[3]
+    ped_file_snp_only_all_snps_wide_temp_allele_spec = ped_file_snp_only_all_snps_wide_temp[ped_file_snp_only_all_snps_wide_temp$Var2 == non_dr_dq_snp_temp,]
+    num_risk_alleles_non_dr_dq = sum(ped_file_snp_only_all_snps_wide_temp_allele_spec$value == non_dr_dq_snp_allele_temp)
+    non_dr_dq_score_temp = non_dr_dq_snp_beta_temp * num_risk_alleles_non_dr_dq
+  return(non_dr_dq_score_temp)
+  })
+  non_dr_dq_sum_score = sum(non_dr_dq_scores)
+  # now get betas for non HLAs
+  non_HLA_scores = apply(non_HLA_df, 1, function(y) {
+    non_HLA_snp_temp = y[1]
+    non_HLA_snp_beta_temp = as.numeric(y[2])
+    non_HLA_snp_allele_temp = y[3]
+    ped_file_snp_only_all_snps_wide_temp_allele_spec_nonHLA = ped_file_snp_only_all_snps_wide_temp[ped_file_snp_only_all_snps_wide_temp$Var2 == non_HLA_snp_temp,]
+    num_risk_alleles_non_HLA = sum(ped_file_snp_only_all_snps_wide_temp_allele_spec_nonHLA$value == non_HLA_snp_allele_temp)
+    non_HLA_score_temp = non_HLA_snp_beta_temp * num_risk_alleles_non_HLA
+  return(non_HLA_score_temp)
+  })
+  non_HLA_sum_scores = sum(non_HLA_scores)
+  non_HLA_non_dr_dq_beta_sums = non_HLA_sum_scores + non_dr_dq_sum_score
+  if(hasInteraction == TRUE) {
+    grs_score = non_HLA_non_dr_dq_beta_sums + interaction_beta
+  } else {
+    grs_score = non_HLA_non_dr_dq_beta_sums + beta_hap_sums_temp
+  }
+  grs_score_list[x] = grs_score
+}
+grs_score_df = data.frame(subject=rownames(allele_counts_all_vars),grs_score_list)
+grs_score_df$FID = sapply(strsplit(grs_score_df$subject,split=":"), function(x) x[1])
+grs_score_df$IID = sapply(strsplit(grs_score_df$subject,split=":"), function(x) x[2])
+write.csv(grs_score_df,file="calculated_grs_scores.csv",row.names=F)
+```
+
