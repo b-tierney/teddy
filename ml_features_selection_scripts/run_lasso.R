@@ -1,0 +1,461 @@
+library(caret)
+library(data.table)
+library(pROC)
+library(timeROC)
+library(glmnet)
+library(doMC)
+library(survival)
+library(purrr)
+library(caTools)
+
+#use_condaenv("/home/sez10/miniconda3_2/envs/python_env")
+#source_python('/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/read_df.py')
+
+args = commandArgs(trailingOnly=TRUE)
+set.seed(123)
+
+test_abundance_data = args[1]
+train_abundance_data = args[2]
+metadata_train = args[3]
+metadata_test = args[4]
+train_sujbects1 = args[5]
+train_sujbects2 = args[6]
+train_sujbects3 = args[7]
+test_subjects = args[8]
+feature_list = args[9]
+features_to_keep = args[10]
+microbiome_features = args[11]
+number_threads = as.numeric(args[12])
+loss_function = args[13]
+
+test_abundance_data = noquote(test_abundance_data)
+train_abundance_data = noquote(train_abundance_data)
+metadata_train = noquote(metadata_train)
+metadata_test = noquote(metadata_test)
+train_sujbects1 = noquote(train_sujbects1)
+train_sujbects2 = noquote(train_sujbects2)
+train_sujbects3 = noquote(train_sujbects3)
+test_subjects = noquote(test_subjects)
+
+print(test_abundance_data)
+print(train_abundance_data)
+print(metadata_train)
+print(metadata_test)
+print(train_sujbects1)
+print(train_sujbects2)
+print(train_sujbects3)
+print(test_subjects)
+print(feature_list)
+
+if(grepl("species",basename(test_abundance_data))) {
+  abundance_type = "species"
+} else if(grepl("pathabundance",basename(test_abundance_data))) {
+  abundance_type = "pathway"
+} else {
+  abundance_type = "gene"
+}
+
+run_lasso = function(test_abundance_data,train_abundance_data,metadata_train,metadata_test,train_sujbects1,train_sujbects2,train_sujbects3,test_subjects,feature_list,features_to_keep,microbiome_features,abundance_type) {
+
+  
+  # get the begin time and end time
+  if(grepl("24month",basename(test_abundance_data))) {
+    begin_time = 730
+  } else if(grepl("18month",basename(test_abundance_data))) {
+    begin_time = 548
+  } else if(grepl("12month",basename(test_abundance_data))) {
+    begin_time = 365
+  } else if(grepl("6month",basename(test_abundance_data))) {
+    begin_time = 183
+  } else if(grepl("3month",basename(test_abundance_data))) {
+    begin_time = 92
+  } else {
+    begin_time = 7300
+  }
+  day_endv <- c(365.25,365.25*3,5*365.25,8*365.25)
+  if(begin_time == 7300) {
+    day_end = 7300
+  }
+  day_end = begin_time + day_endv
+
+  if(abundance_type == "gene") {
+    test_abundance_data_df = fread(test_abundance_data,data.table=FALSE)
+    test_gene_names = read.table(paste(dirname(test_abundance_data),"/",basename(dirname(test_abundance_data)),"filtered_abundance_test_names.txt",sep=""),header=FALSE)[,1]
+    rownames(test_abundance_data_df) = test_gene_names
+  
+    train_abundance_data_df = fread(train_abundance_data,data.table=FALSE)
+    train_gene_names = read.table(paste(dirname(train_abundance_data),"/",basename(dirname(train_abundance_data)),"filtered_abundance_train_names.txt",sep=""),header=FALSE)[,1]    
+    rownames(train_abundance_data_df) = train_gene_names
+  } else {
+    test_abundance_data_df = fread(test_abundance_data,data.table=FALSE)
+    train_abundance_data_df = fread(train_abundance_data,data.table=FALSE)
+    test_names = read.table(gsub("_test.csv","_test_names.csv",test_abundance_data),header=FALSE)[,1]
+    train_names = read.table(gsub("_train.csv","_train_names.csv",train_abundance_data),header=FALSE)[,1]
+    rownames(test_abundance_data_df) = test_names
+    rownames(train_abundance_data_df) = train_names
+  }
+
+  if(microbiome_features != "all" & microbiome_features == "ttest_sig") {
+    if(abundance_type == "gene") {
+      sig_genes_file = paste(dirname(test_abundance_data),"/",basename(dirname(test_abundance_data)),"output_ttest_results.rds",sep="")
+    } else if(abundance_type == "species") {
+      sig_genes_file = paste(dirname(test_abundance_data),"/",basename(dirname(test_abundance_data)),"_speciesoutput_ttest_results.rds",sep="")
+    } else if(abundance_type == "pathway") {
+      sig_genes_file = paste(dirname(test_abundance_data),"/",basename(dirname(test_abundance_data)),"_pathwayoutput_ttest_results.rds",sep="")
+    }
+    sig_genes_df = readRDS(sig_genes_file)
+    sig_genes_df = names(sig_genes_df[[2]])
+    train_abundance_data_df = train_abundance_data_df[,sig_genes_df,drop=FALSE]
+    test_abundance_data_df = test_abundance_data_df[,sig_genes_df,drop=FALSE]
+  }
+
+  if(abundance_type != "gene") {
+    colnames(train_abundance_data_df) = gsub("[|]","_",colnames(train_abundance_data_df))
+    colnames(train_abundance_data_df) = gsub(" ","_",colnames(train_abundance_data_df))
+
+    colnames(test_abundance_data_df) = gsub("[|]","_",colnames(test_abundance_data_df))
+    colnames(test_abundance_data_df) = gsub(" ","_",colnames(test_abundance_data_df))
+  }
+
+  metadata_train_df = read.csv(metadata_train)
+  metadata_test_df = read.csv(metadata_test)
+  rownames(metadata_train_df) = metadata_train_df$SubjectID
+  rownames(metadata_test_df) = metadata_test_df$SubjectID
+  train_sujbects1_df = read.table(train_sujbects1)
+  train_sujbects2_df = read.table(train_sujbects2)
+  train_sujbects3_df = read.table(train_sujbects3)
+  test_subjects_df = read.table(test_subjects)
+  
+  train_counts = table(metadata_train_df$getsCondition)
+  test_counts = table(metadata_test_df$getsCondition)
+  
+  train_ctrl_counts = train_counts["0"]
+  train_case_counts = train_counts["1"]
+  test_ctrl_counts = test_counts["0"]
+  test_case_counts = test_counts["1"]
+
+  sample_counts = c(train_ctrl=train_ctrl_counts,train_case=train_case_counts,total_train=train_ctrl_counts+train_case_counts,test_ctrl=test_ctrl_counts,test_case=test_case_counts,total_test=test_ctrl_counts+test_case_counts)
+  names(sample_counts) = c("train_ctrl","train_case","total_train","test_ctrl","test_case","total_test")
+
+
+  train_sujbects1_to_keep = intersect(rownames(metadata_train_df),train_sujbects1_df[,1])
+  train_sujbects2_to_keep = intersect(rownames(metadata_train_df),train_sujbects2_df[,1])
+  train_sujbects3_to_keep = intersect(rownames(metadata_train_df),train_sujbects3_df[,1])
+  test_subjects_to_keep = intersect(rownames(metadata_test_df),test_subjects_df[,1])
+  
+  train_sujbects1_df = train_sujbects1_df[match(train_sujbects1_to_keep,train_sujbects1_df[,1]),,drop=FALSE]
+  train_sujbects2_df = train_sujbects2_df[match(train_sujbects2_to_keep,train_sujbects2_df[,1]),,drop=FALSE]
+  train_sujbects3_df = train_sujbects3_df[match(train_sujbects3_to_keep,train_sujbects3_df[,1]),,drop=FALSE]
+  test_subjects_df = test_subjects_df[match(test_subjects_to_keep,test_subjects_df[,1]),,drop=FALSE]
+  
+  # combine metadata and abundance data
+  # first order metadata correctly
+  metadata_train_df = metadata_train_df[rownames(train_abundance_data_df),]
+  metadata_test_df = metadata_test_df[rownames(test_abundance_data_df),]
+
+  num_unique_antibodies = length(unique(metadata_train_df$number_autoantibodies))
+  if(num_unique_antibodies>1) {
+    metadata_train_df$number_autoantibodies = as.factor(metadata_train_df$number_autoantibodies)
+    antibody_dummies = model.matrix(~number_autoantibodies, metadata_train_df)
+    antibody_dummies = antibody_dummies[,-1,drop=FALSE]
+    #if(ncol(antibody_dummies)==1) {
+    #  colnames(antibody_dummies) = paste(colnames(antibody_dummies),seq(1,ncol(antibody_dummies)),sep="")
+    #}
+    metadata_train_df = metadata_train_df[,-match("number_autoantibodies",colnames(metadata_train_df))]
+    metadata_train_df = cbind(metadata_train_df,antibody_dummies)
+  } else {
+    # remove number_autoantibodies cause it has a variance of 0. not a useful predictor
+    if("number_autoantibodies"%in%colnames(metadata_train_df)) {
+      metadata_train_df = metadata_train_df[,-match("number_autoantibodies",colnames(metadata_train_df))]
+    }
+  }
+  
+  num_unique_antibodies_test = length(unique(metadata_test_df$number_autoantibodies))
+  if(num_unique_antibodies_test>1) {
+    metadata_test_df$number_autoantibodies = as.factor(metadata_test_df$number_autoantibodies)
+    antibody_dummies = model.matrix(~number_autoantibodies, metadata_test_df)
+    antibody_dummies = antibody_dummies[,-1,drop=FALSE]
+    #if(ncol(antibody_dummies)==1) {
+    #  colnames(antibody_dummies) = paste(colnames(antibody_dummies),seq(1,ncol(antibody_dummies)),sep="")
+    #}
+    metadata_test_df = metadata_test_df[,-match("number_autoantibodies",colnames(metadata_test_df))]
+    metadata_test_df = cbind(metadata_test_df,antibody_dummies)
+  } else {
+    if("number_autoantibodies"%in%colnames(metadata_test_df)) {
+      metadata_test_df = metadata_test_df[,-match("number_autoantibodies",colnames(metadata_test_df))]
+    }
+  }
+
+  # its possible that the number of antibodies in train and test are different so we have to prepare for this
+  missing_vars = setdiff(colnames(metadata_train_df),colnames(metadata_test_df))
+  if(length(missing_vars) >0) {
+    for(x in 1:length(missing_vars)) {
+      newVar = rep(0,nrow(metadata_test_df))
+      metadata_test_df = cbind(newVar,metadata_test_df)
+      colnames(metadata_test_df)[1] = missing_vars[x]
+    }
+  }
+  # now make sure test metadata has same columns as train metadata
+  metadata_test_df = metadata_test_df[,match(colnames(metadata_train_df),colnames(metadata_test_df))]
+  
+  metadata_train_df$getsCondition = as.factor(metadata_train_df$getsCondition)
+  metadata_test_df$getsCondition = as.factor(metadata_test_df$getsCondition)
+  
+  feature_vec = strsplit(feature_list,split=",")[[1]]
+  if("number_autoantibodies"%in%feature_vec & num_unique_antibodies>1) {
+    metadata_cols_to_take = colnames(metadata_train_df)[grep("number_autoantibodies",colnames(metadata_train_df))]
+    feature_vec = feature_vec[-match("number_autoantibodies",feature_vec)]
+    feature_vec = c(feature_vec,metadata_cols_to_take)
+  } else if("number_autoantibodies"%in%feature_vec & num_unique_antibodies==1) {
+    feature_vec = feature_vec[-match("number_autoantibodies",feature_vec)]
+  }
+
+  if("microbiome"%in%feature_vec & length(feature_vec) > 1) {
+    metadata_to_get = c("time","getsCondition",intersect(feature_vec,colnames(metadata_train_df)))
+    all_train_data = cbind(train_abundance_data_df,metadata_train_df[,metadata_to_get])
+    all_test_data = cbind(test_abundance_data_df,metadata_test_df[,metadata_to_get])
+  } else if("microbiome"%in%feature_vec & length(feature_vec) == 1) {
+    metadata_to_get = c("time","getsCondition")
+    all_train_data = cbind(train_abundance_data_df,metadata_train_df[,metadata_to_get])
+    all_test_data = cbind(test_abundance_data_df,metadata_test_df[,metadata_to_get])
+  } else if(!"microbiome"%in%feature_vec) {
+    metadata_to_get = c("time","getsCondition",intersect(feature_vec,colnames(metadata_train_df)))
+    all_train_data = metadata_train_df[,metadata_to_get]
+    all_test_data = metadata_test_df[,metadata_to_get]
+  }
+
+  features_to_keep_vec = strsplit(features_to_keep,split=",")[[1]]
+  if("number_autoantibodies"%in%features_to_keep_vec & num_unique_antibodies>1) {
+    metadata_cols_to_take = colnames(metadata_train_df)[grep("number_autoantibodies",colnames(metadata_train_df))]
+    features_to_keep_vec = features_to_keep_vec[-match("number_autoantibodies",features_to_keep_vec)]
+    features_to_keep_vec = c(features_to_keep_vec,metadata_cols_to_take)
+  } else if("number_autoantibodies"%in%features_to_keep_vec & num_unique_antibodies==1) {
+    features_to_keep_vec = features_to_keep_vec[-match("number_autoantibodies",features_to_keep_vec)]  
+  }
+
+  #train_sujbects1_index1 = match(train_sujbects1_df[,1],rownames(all_train_data))
+  #train_sujbects2_index2 = match(train_sujbects2_df[,1],rownames(all_train_data))
+  #train_sujbects3_index3 = match(train_sujbects3_df[,1],rownames(all_train_data))
+
+  #indexes = list(train_sujbects1_index1,train_sujbects2_index2,train_sujbects3_index3)
+  
+  foldIDs = rep(0,nrow(all_train_data))
+  foldIDs[rownames(all_train_data)%in%train_sujbects1_df[,1]] = 1
+  foldIDs[rownames(all_train_data)%in%train_sujbects2_df[,1]] =	2
+  foldIDs[rownames(all_train_data)%in%train_sujbects3_df[,1]] =	3
+
+  train_y = all_train_data[,c("time","getsCondition")]
+  test_y = all_test_data[,c("time","getsCondition")]
+  train_x = all_train_data[,-match(c("time","getsCondition"),colnames(all_train_data)),drop=FALSE]
+  test_x = all_test_data[,-match(c("time","getsCondition"),colnames(all_test_data)),drop=FALSE] 
+
+  colnames(train_y) = c("time","status")
+  colnames(test_y) = c("time","status")
+
+  train_y$time = as.numeric(train_y$time)
+  train_y$status = as.numeric(as.character(train_y$status))
+
+  test_y$time = as.numeric(test_y$time)
+  test_y$status = as.numeric(as.character(test_y$status))
+
+
+  train_y = as.matrix(train_y)
+  test_y = as.matrix(test_y)
+  train_x = as.matrix(train_x)
+  test_x = as.matrix(test_x)
+
+  penalty_factor = rep(1,ncol(train_x))
+  penalty_factor[colnames(train_x)%in%features_to_keep_vec] = 0
+
+  train_lasso = function(all_train_data,all_test_data,train_x,train_y,test_x,test_y,weighting) {
+    if(weighting == TRUE) {
+      weight_0 = 1-sum(train_y[,2]==0)/length(train_y[,2])
+      weight_1 = 1-sum(train_y[,2]==1)/length(train_y[,2])
+      weights = rep(0,length(train_y[,2]))
+      weights[train_y[,2]==0] = weight_0
+      weights[train_y[,2]==1] = weight_1
+      weights_test = rep(0,length(test_y[,2]))
+      weights_test[test_y[,2]==0] = weight_0
+      weights_test[test_y[,2]==1] = weight_1
+      
+    } else {
+      weights = rep(1,length(train_y[,2]))
+      weights_test = rep(1,length(test_y[,2]))
+    }
+
+    if(ncol(train_x)>1) {
+      if(number_threads>1) {
+        library(doMC)
+        registerDoMC(cores = number_threads)
+          if(loss_function == "C") {
+            cv_output <- cv.glmnet(train_x, train_y, nfolds = 3,family="cox",penalty.factor=penalty_factor,parallel=TRUE,type.measure="C",foldid=foldIDs,weights=weights)
+          } else {
+            cv_output <- cv.glmnet(train_x, train_y, nfolds = 3,family="cox",penalty.factor=penalty_factor,parallel=TRUE,foldid=foldIDs,weights=weights)
+          }
+      } else {
+        if(loss_function == "C") {
+          cv_output <- cv.glmnet(train_x, train_y, nfolds = 3,family="cox",penalty.factor=penalty_factor,parallel=FALSE,type.measure="C",foldid=foldIDs,weights=weights)
+        } else {
+          cv_output <- cv.glmnet(train_x, train_y, nfolds = 3,family="cox",penalty.factor=penalty_factor,parallel=FALSE,foldid=foldIDs,weights=weights)
+        }
+      }
+      print("End lasso cross validation")
+      best_lam <- cv_output$lambda.min
+      train_coefs = coef(cv_output,s=best_lam)
+      train_coefs = train_coefs[abs(train_coefs[,1])>0,,drop=FALSE]
+      predict_train = predict(cv_output, newx = train_x, s = "lambda.min",type="response")
+      predict_test = predict(cv_output, newx = test_x, s = "lambda.min",type="response")
+    } else {
+      all_train_data$getsCondition = as.numeric(as.character(all_train_data$getsCondition))
+      all_test_data$getsCondition = as.numeric(as.character(all_test_data$getsCondition))
+      my_formula <- paste0("~",paste(colnames(train_x), collapse = " + "))
+      my_formula <- as.formula(paste("Surv(time,getsCondition)",my_formula,sep=""))
+      model_train_min <- coxph(my_formula,data=all_train_data,control = coxph.control(iter.max = 50),weight=weights)
+      predict_train = predict(model_train_min,newdata=all_train_data,type = "risk")
+      predict_test = predict(model_train_min,newdata=all_test_data,type = "risk")
+      train_coefs = model_train_min$coefficients
+    }
+    # get AUCs
+    ROC.T_train <- tryCatch({
+       ROC.T_train <- timeROC(T = train_y[,"time"],
+          delta = train_y[,"status"],marker = predict_train,
+          cause = 1, weighting = "marginal",
+          times = day_end,
+          iid = TRUE) # set to false for now
+    },error = function(e) {
+       ROC.T_train <- timeROC(T = train_y[,"time"],
+          delta = train_y[,"status"],marker = predict_train,
+          cause = 1, weighting = "marginal",
+          times = day_end,
+          iid = FALSE) # set to false for now
+    })
+    ROC.T_test <-  tryCatch({
+       ROC.T_test <- timeROC(T = test_y[,"time"],
+          delta = test_y[,"status"],marker = predict_test,
+          cause = 1, weighting = "marginal",
+          times = day_end,
+          iid = TRUE) # set to false for now
+    },error = function(e) {
+       ROC.T_test <- timeROC(T = test_y[,"time"],
+          delta = test_y[,"status"],marker = predict_test,
+          cause = 1, weighting = "marginal",
+          times = day_end,
+          iid = FALSE) # set to false for now
+    })
+
+    #now get AUCs for precision recall
+    calc_precision_recall = function(risks,all_data) {
+      if(min(risks) >0) {
+        risks2 = c(0,risks)
+      } else {
+        risks2 = risks
+      }
+      times_temp = all_data[,"time"]
+      delta_temp = all_data[,"status"]
+      train_precision_recall_vals = lapply(risks2,function(relative_risk) {
+        train_stats_temp = SeSpPPVNPV(cutpoint=relative_risk,T=times_temp,delta = delta_temp,marker = risks,cause = 1, weighting = "marginal",times = day_end,iid = FALSE)
+        precision_vals = train_stats_temp$PPV
+        recall_vals = train_stats_temp$TP
+        return(list(precision_vals,recall_vals))
+      })
+      precision_vals = do.call("rbind",lapply(train_precision_recall_vals,function(x) x[[1]]))
+      recall_vals = do.call("rbind",lapply(train_precision_recall_vals,function(x) x[[2]]))
+      precision_vals = as.data.frame(precision_vals)
+      recall_vals = as.data.frame(recall_vals)
+      precision_vals = precision_vals[order(risks2,decreasing=TRUE),]
+      recall_vals = recall_vals[order(risks2,decreasing=TRUE),]
+      # calculate trapezoid rule
+      precision_recall_aucs = sapply(seq(1,ncol(recall_vals)), function(mycount) {
+         recalls_temp = recall_vals[,mycount]
+         precision_temp = precision_vals[,mycount]
+         NA_vals_precision = which(is.na(precision_temp))
+         NA_vals_recall = which(is.na(recalls_temp))
+         NA_vals = c(NA_vals_precision,NA_vals_recall)
+         if(length(NA_vals) > 0) {
+            recalls_temp = recalls_temp[-NA_vals]
+            precision_temp = precision_temp[-NA_vals]
+         }
+         if(length(precision_temp)>0) {
+           precision_recall_auc = trapz(recalls_temp,precision_temp)
+           return(precision_recall_auc)
+         } else {
+           return(NA)
+        }
+      })
+      return(precision_recall_aucs)
+    }
+  
+    pr_all_train = calc_precision_recall(predict_train,train_y)
+    pr_all_test = calc_precision_recall(predict_test,test_y)
+    # now bootstrap
+    pr_mat_train = matrix(NA,ncol=4,nrow=100)
+    for (x in 1:100) {
+      index_to_sample = sample(x = seq(1,length(predict_train)), size  = length(predict_train),replace=TRUE)
+      sampled_risk = predict_train[index_to_sample]
+      sampled_data = train_y[index_to_sample,,drop=FALSE]
+      pr_temp = calc_precision_recall(sampled_risk,sampled_data)
+      pr_mat_train[x,] = pr_temp
+    }
+
+    pr_mat_test = matrix(NA,ncol=4,nrow=100)
+    for (x in 1:100) {
+      index_to_sample = sample(x = seq(1,length(predict_test)), size  = length(predict_test),replace=TRUE)
+      sampled_risk = predict_test[index_to_sample]
+      sampled_data = test_y[index_to_sample,,drop=FALSE]
+      pr_temp = calc_precision_recall(sampled_risk,sampled_data)
+      pr_mat_test[x,] = pr_temp
+    }
+
+    # now calculate 2.5% and 97.5% quantiles
+    train_pr_CI = apply(pr_mat_train, 2, function(mycol) {
+      myquantiles = quantile(mycol,c(0.025,0.975),na.rm=TRUE)
+      lowerCI = myquantiles[1]
+      upperCI = myquantiles[2]
+      CI = paste(lowerCI,upperCI,sep="-")
+      return(CI)
+    })
+
+    test_pr_CI = apply(pr_mat_test, 2, function(mycol) {
+      myquantiles = quantile(mycol,c(0.025,0.975),na.rm=TRUE)
+      lowerCI = myquantiles[1]
+      upperCI = myquantiles[2]
+      CI = paste(lowerCI,upperCI,sep="-")
+      return(CI)
+    })
+
+    train_pr_cis = cbind(pr_all_train,train_pr_CI)
+    test_pr_cis = cbind(pr_all_test,test_pr_CI)
+    rownames(train_pr_cis) = day_end
+    rownames(test_pr_cis) = day_end
+
+    all_pr_cis = cbind(train_pr_cis,test_pr_cis)
+    # get C-index
+    train_cindex = Cindex(predict_train, train_y, weights = weights)
+    test_cindex = Cindex(predict_test, test_y, weights = weights_test)
+
+    c_indexes = c(train=train_cindex,test=test_cindex)
+
+    final_results = list(ROC.T_train,ROC.T_test,all_pr_cis,c_indexes,train_coefs,sample_counts,feature_vec)
+    return(final_results)
+  }
+  poss_train_lasso = possibly(.f = train_lasso, otherwise = NA)
+  weighted_lasso = poss_train_lasso(all_train_data,all_test_data,train_x,train_y,test_x,test_y,weighting=TRUE)
+  unweighted_results = poss_train_lasso(all_train_data,all_test_data,train_x,train_y,test_x,test_y,weighting=FALSE)
+  return(list(weighted_lasso,unweighted_results))
+}
+
+model_results = run_lasso(test_abundance_data=test_abundance_data,train_abundance_data=train_abundance_data,metadata_train=metadata_train,metadata_test=metadata_test,train_sujbects1=train_sujbects1,train_sujbects2=train_sujbects2,train_sujbects3=train_sujbects3,test_subjects=test_subjects,feature_list=feature_list,features_to_keep=features_to_keep,microbiome_features=microbiome_features,abundance_type=abundance_type)
+
+out_path = dirname(train_abundance_data)
+out_prefix = basename(out_path)
+if(abundance_type == "species") {
+  out_prefix = paste(out_prefix,"species",sep="_")
+} else if(abundance_type == "pathway") {
+  out_prefix = paste(out_prefix,"pathway",sep="_")
+}
+
+output_weighted = paste(out_path,'/',out_prefix,"output_lasso_time_to_event_",loss_function,"_loss","_microbiome_selection_method_",microbiome_features,"_feature_list_",feature_list,"_weighted.rds",sep="")
+output_unweighted = paste(out_path,'/',out_prefix,"output_lasso_time_to_event_",loss_function,"_loss","_microbiome_selection_method_",microbiome_features,"_feature_list_",feature_list,".rds",sep="")
+
+saveRDS(model_results[[1]],output_weighted)
+saveRDS(model_results[[2]],output_unweighted)

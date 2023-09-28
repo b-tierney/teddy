@@ -1,0 +1,1186 @@
+---
+title: "analyze_TEDDY_models"
+author: "Sam Zimmerman"
+date: "2023-05-26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(caret)
+library(data.table)
+library(pROC)
+library(timeROC)
+library(glmnet)
+library(doMC)
+library(survival)
+library(randomForestSRC)
+library(pec)
+library(pROC)
+library(caTools)
+library(parallel)
+library(locStra)
+
+
+output_lasso_files = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4",pattern = "lasso",full.names = TRUE,recursive=TRUE)
+random_forest_files = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4",pattern="output_random_forest_",full.names = TRUE,recursive = TRUE)
+cox_regression_files= list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4",pattern="output_cox_regression_time_to_event",full.names = TRUE,recursive = TRUE)
+logistic_regression_files = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4",pattern="output_plain_logistic_regression_feature_list_",full.names = TRUE,recursive = TRUE)
+
+output_lmer_window_adjusted_files = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/",pattern="output_lmer_feature_selection_results_window_size_adjusted.rds",full.names = TRUE,recursive = TRUE)
+
+
+all_output_files_with_microbiome_genelevel = c(output_lasso_files,random_forest_files)
+all_output_files_with_microbiome_genelevel = all_output_files_with_microbiome_genelevel[grepl(".rds",all_output_files_with_microbiome_genelevel)]
+all_output_files_with_microbiome_genelevel = all_output_files_with_microbiome_genelevel[!grepl("pathway",all_output_files_with_microbiome_genelevel)]
+all_output_files_with_microbiome_genelevel = all_output_files_with_microbiome_genelevel[!grepl("species",all_output_files_with_microbiome_genelevel)]
+all_output_files_with_microbiome_genelevel = all_output_files_with_microbiome_genelevel[!grepl("all_clinical",all_output_files_with_microbiome_genelevel)]
+
+all_output_files_with_microbiome_genelevel_microbiome_only_before_condition = all_output_files_with_microbiome_genelevel[grep("microbiome.rds",all_output_files_with_microbiome_genelevel)]
+all_output_files_with_microbiome_genelevel_microbiome_only_before_condition = all_output_files_with_microbiome_genelevel_microbiome_only_before_condition[grep("before_vs_far_from_condition",all_output_files_with_microbiome_genelevel_microbiome_only_before_condition)]
+all_output_files_with_microbiome_genelevel_microbiome_only_before_condition_T1D = all_output_files_with_microbiome_genelevel_microbiome_only_before_condition[grep("healthy_pre-t1d",all_output_files_with_microbiome_genelevel_microbiome_only_before_condition)]
+all_output_files_with_microbiome_genelevel_microbiome_only_before_condition_GAD = all_output_files_with_microbiome_genelevel_microbiome_only_before_condition[grep("healthy_pre-GAD",all_output_files_with_microbiome_genelevel_microbiome_only_before_condition)]
+all_output_files_with_microbiome_genelevel_microbiome_only_before_condition_IA2A = all_output_files_with_microbiome_genelevel_microbiome_only_before_condition[grep("healthy_pre-IA2A",all_output_files_with_microbiome_genelevel_microbiome_only_before_condition)]
+all_output_files_with_microbiome_genelevel_microbiome_only_before_condition_MIAA = all_output_files_with_microbiome_genelevel_microbiome_only_before_condition[grep("healthy_pre-MIAA",all_output_files_with_microbiome_genelevel_microbiome_only_before_condition)]
+all_output_files_with_microbiome_genelevel_microbiome_only_before_condition_sero = all_output_files_with_microbiome_genelevel_microbiome_only_before_condition[grep("healthy_pre-sero",all_output_files_with_microbiome_genelevel_microbiome_only_before_condition)]
+all_output_files_with_microbiome_genelevel_microbiome_only_before_condition_sero_T1D = all_output_files_with_microbiome_genelevel_microbiome_only_before_condition[grep("serconverters_or_T1D",all_output_files_with_microbiome_genelevel_microbiome_only_before_condition)]
+
+all_output_files_with_microbiome_pathwaylevel = c(output_lasso_files,random_forest_files)
+all_output_files_with_microbiome_pathwaylevel = all_output_files_with_microbiome_pathwaylevel[grepl(".rds",all_output_files_with_microbiome_pathwaylevel)]
+all_output_files_with_microbiome_pathwaylevel = all_output_files_with_microbiome_pathwaylevel[grepl("pathway",all_output_files_with_microbiome_pathwaylevel)]
+
+
+
+all_output_files_with_microbiome_pathwaylevel_microbiome_only_before_condition = all_output_files_with_microbiome_pathwaylevel[grep("microbiome.rds",all_output_files_with_microbiome_pathwaylevel)]
+all_output_files_with_microbiome_pathwaylevel_microbiome_only_before_condition = all_output_files_with_microbiome_pathwaylevel_microbiome_only_before_condition[grep("before_vs_far_from_condition",all_output_files_with_microbiome_pathwaylevel_microbiome_only_before_condition)]
+all_output_files_with_microbiome_pathwaylevel_microbiome_only_before_condition_IA2A = all_output_files_with_microbiome_pathwaylevel_microbiome_only_before_condition[grep("healthy_pre-IA2A",all_output_files_with_microbiome_pathwaylevel_microbiome_only_before_condition)]
+
+all_output_files_with_microbiome_genelevel_no_before_condition = all_output_files_with_microbiome_genelevel[-grep("condition",all_output_files_with_microbiome_genelevel)]
+all_output_files_with_microbiome_genelevel_no_before_condition = all_output_files_with_microbiome_genelevel_no_before_condition[-grep("triple_converters_vs_T1D",all_output_files_with_microbiome_genelevel_no_before_condition)]
+all_output_files_with_microbiome_genelevel_no_before_condition = all_output_files_with_microbiome_genelevel_no_before_condition[-grep("serconverters_or_T1D",all_output_files_with_microbiome_genelevel_no_before_condition)]
+
+all_output_files_with_microbiome_pathwaylevel_no_before_condition = all_output_files_with_microbiome_pathwaylevel[-grep("condition",all_output_files_with_microbiome_pathwaylevel)]
+all_output_files_with_microbiome_pathwaylevel_no_before_condition = all_output_files_with_microbiome_pathwaylevel_no_before_condition[-grep("triple_converters_vs_T1D",all_output_files_with_microbiome_pathwaylevel_no_before_condition)]
+all_output_files_with_microbiome_pathwaylevel_no_before_condition = all_output_files_with_microbiome_pathwaylevel_no_before_condition[-grep("serconverters_or_T1D",all_output_files_with_microbiome_pathwaylevel_no_before_condition)]
+
+
+all_output_files_with_microbiome_specieslevel = c(output_lasso_files,random_forest_files)
+all_output_files_with_microbiome_specieslevel = all_output_files_with_microbiome_specieslevel[grepl(".rds",all_output_files_with_microbiome_specieslevel)]
+all_output_files_with_microbiome_specieslevel = all_output_files_with_microbiome_specieslevel[grepl("species",all_output_files_with_microbiome_specieslevel)]
+all_output_files_with_microbiome_specieslevel = all_output_files_with_microbiome_specieslevel[-grep("condition",all_output_files_with_microbiome_specieslevel)]
+all_output_files_with_microbiome_specieslevel = all_output_files_with_microbiome_specieslevel[-grep("triple_converters_vs_T1D",all_output_files_with_microbiome_specieslevel)]
+all_output_files_with_microbiome_specieslevel = all_output_files_with_microbiome_specieslevel[-grep("serconverters_or_T1D",all_output_files_with_microbiome_specieslevel)]
+
+
+all_output_files_with_microbiome_genelevel_microbiome_only_before_condition = all_output_files_with_microbiome_genelevel_microbiome_only_before_condition[grep("before_vs_far_from_condition",all_output_files_with_microbiome_genelevel_microbiome_only_before_condition)]
+
+
+library(data.table)
+library(locStra)
+prokka_annotations = fread("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/get_consensus_seq_annotations/all_consensus_gene_prokka_annotations_CDS_only.tsv",sep="\t",header=FALSE,data.table=TRUE)
+setkey(prokka_annotations,V1)
+
+get_top_genes_in_models = function(fileNames,output_name,raw_gene=FALSE,is_species=FALSE,is_pathway=FALSE) { # if raw gene is false then get function of gene
+  prokka_annotations_each_model = lapply(fileNames, function(myfile) {
+    if(grepl("lasso_time_to_event",basename(myfile))) {
+      model = "lasso_cox-regression"
+    } else if(grepl("output_random_forest_time_to_event_",basename(myfile))) {
+      model = "random_survival_forest"
+    } else if(grepl("lasso_logistic_regression",basename(myfile))) {
+      model = "lasso_logistic_regression"
+    } else if(grepl("output_random_forest_binary_",basename(myfile))) {
+      model = "random_classification_forest"
+    } else if(grepl("output_plain_logistic_regression_feature_list_",basename(myfile))) {
+      model = "unregularized_logistic_regression"
+    } else if(grepl("output_cox_regression_time_to_event",basename(myfile))) {
+      model = "cox_regression"
+    }
+    rds_output = readRDS(myfile)
+    if(length(rds_output) == 1) {
+      if(is.na(rds_output)) {
+        return(NA)
+      }
+    }
+    if(model == "lasso_cox-regression" | model == "random_survival_forest") {
+      cases_time_t = rds_output[[6]]["test_case"]
+      survivors_time_t = rds_output[[6]]["test_ctrl"]
+    } else {
+      cases_time_t = rds_output[[4]]["test_case"]
+      survivors_time_t = rds_output[[4]]["test_ctrl"]
+    }
+    if(is.na(cases_time_t)) {
+      cases_time_t = 0
+    }
+    if(is.na(survivors_time_t)) {
+      survivors_time_t = 0
+    }
+    case_ctrl_gt_10 = cases_time_t> 10 & survivors_time_t > 10
+    if(case_ctrl_gt_10 == FALSE) {
+      return(NA)
+    }
+    if(grepl("time_to_event",myfile)) {
+      coefs = rds_output[[5]]
+    } else {
+      coefs = rds_output[[3]]
+    }
+    if(as.character(class(coefs)[1]) == "dgCMatrix" | class(coefs)[1] == "matrix") {
+      coefs = as.matrix(coefs)
+      coefs = coefs[,1,drop=FALSE]
+      colnames(coefs) = "coefs"
+    } else if(class(coefs)[1] == "numeric") {
+      coefs = as.data.frame(coefs)
+    } else if(is.na(coefs)) {
+      return(NA)
+    }
+    coefs = coefs[abs(coefs[,1])>0,,drop=FALSE]
+    if(is_species == TRUE) {
+      rownames(coefs) = sapply(rownames(coefs), function(x) {
+        if(grepl("__",x) == FALSE) {
+          return(x)
+        } else {
+          x= strsplit(x,split="_")[[1]]
+          x = paste(x[seq(length(x)-2,length(x))],collapse="_")
+        }
+      })
+    }
+    fdr_index = match("fdr",rownames(coefs))
+    fdr_index = fdr_index[!is.na(fdr_index)]
+    grs2_index = match("grs2",rownames(coefs))
+    grs2_index= grs2_index[!is.na(grs2_index)]
+    number_auto_indexes = grep("number_autoantibodies",rownames(coefs))
+    clinical_indexes = c(fdr_index,grs2_index,number_auto_indexes)
+    if(length(clinical_indexes) < nrow(coefs)) {
+      # remove clincica indexes
+      if(length(clinical_indexes) >0) {
+        coefs = coefs[-clinical_indexes,,drop=FALSE]
+      }
+      prokka_annotations_temp = prokka_annotations[rownames(coefs)]
+      prokka_annotations_temp = as.data.frame(prokka_annotations_temp)
+      prokka_annotations_temp = cbind(prokka_annotations_temp,coefs=coefs)
+      rownames(prokka_annotations_temp) = rownames(coefs)
+      prokka_annotations_temp = prokka_annotations_temp[order(abs(prokka_annotations_temp$coefs)),]
+      if(raw_gene == TRUE) {
+        if(is_species ==FALSE & is_pathway ==FALSE) {
+          prokka_annotations_temp$V7 = paste(rownames(prokka_annotations_temp),prokka_annotations_temp$V7,sep=":")
+        } else {
+          prokka_annotations_temp$V7 = rownames(prokka_annotations_temp)
+        }
+      }
+      prokka_annotations_temp = prokka_annotations_temp$V7
+      return(prokka_annotations_temp)
+    } else {
+      return(NA)
+    }
+  })
+  names(prokka_annotations_each_model) = basename(fileNames)
+  notNull = sapply(prokka_annotations_each_model, function(x) {
+    if((length(x) == 1 & sum(is.na(x))==1) | is.null(x)) {
+      return(FALSE)
+    } else {
+      return(TRUE)
+    }
+  })
+  prokka_annotations_each_model = prokka_annotations_each_model[notNull] # 7170 models
+  top_protein_function_predictive_permodel = sort(table(unlist(lapply(prokka_annotations_each_model,function(x) unique(x)))),decreasing = TRUE)
+  top_protein_function_predictive_permodel = as.data.frame(top_protein_function_predictive_permodel)
+  if(raw_gene == FALSE) {
+    top_protein_function_predictive_permodel = top_protein_function_predictive_permodel[-match("hypothetical protein",top_protein_function_predictive_permodel$Var1),]
+  } else {
+    top_protein_function_predictive_permodel = top_protein_function_predictive_permodel[-grep("(Intercept)",top_protein_function_predictive_permodel$Var1),]
+  }
+  top_protein_function_predictive_permodel$percent = top_protein_function_predictive_permodel$Freq/length(prokka_annotations_each_model)
+  top_protein_function_predictive_permodel$percent = top_protein_function_predictive_permodel$percent*100
+  if(raw_gene == FALSE) {
+    pdf(output_name)
+  } else if(is_species == TRUE) {
+    pdf(output_name)
+  } else {
+    pdf(output_name,width=10)
+  }
+  if(nrow(top_protein_function_predictive_permodel)>50) {
+    myplot = ggplot(top_protein_function_predictive_permodel[1:50,],aes(x=Var1,y=percent)) + geom_col() + coord_flip() + xlab("") + theme_classic()
+  } else {
+    myplot = ggplot(top_protein_function_predictive_permodel,aes(x=Var1,y=percent)) + geom_col() + coord_flip() + xlab("") + theme_classic()
+  }
+  print(myplot)
+  dev.off()
+  return(list(top_protein_function_predictive_permodel,prokka_annotations_each_model))
+}
+
+get_top_genes_in_models_from_lmer_res = function(fileNames,output_name,raw_gene=FALSE) { # if raw gene is false then get function of gene
+  prokka_annotations_each_model = lapply(fileNames, function(myfile) {
+    rds_output = readRDS(myfile)
+    rds_output = rds_output[!is.na(rds_output$pvalue),]
+    rds_output = rds_output[rds_output$singular == 0,]
+    rds_output$BY = p.adjust(rds_output$pvalue,method="BY")
+    rds_output = rds_output[rds_output$BY < 0.05,]
+    prokka_annotations_temp = prokka_annotations[rownames(rds_output)]
+    prokka_annotations_temp = as.data.frame(prokka_annotations_temp)
+    prokka_annotations_temp = cbind(prokka_annotations_temp,rds_output)
+    prokka_annotations_temp = prokka_annotations_temp[order(prokka_annotations_temp$pvalue),]
+    if(raw_gene == TRUE) {
+      return(paste(rownames(prokka_annotations_temp),prokka_annotations_temp$V7,sep=":"))
+    } else {
+      return(prokka_annotations_temp$V7)
+    }
+  })
+  names(prokka_annotations_each_model) = basename(fileNames)
+  
+  prokka_annotations_each_model = prokka_annotations_each_model[sapply(prokka_annotations_each_model,length)>0] # 47 models
+  top_protein_function_predictive_permodel = sort(table(unlist(lapply(prokka_annotations_each_model,function(x) unique(x)))),decreasing = TRUE)
+  top_protein_function_predictive_permodel = as.data.frame(top_protein_function_predictive_permodel)
+  if(raw_gene == FALSE) {
+    top_protein_function_predictive_permodel = top_protein_function_predictive_permodel[-match("hypothetical protein",top_protein_function_predictive_permodel$Var1),]
+  }
+  top_protein_function_predictive_permodel$percent = top_protein_function_predictive_permodel$Freq/length(prokka_annotations_each_model)
+  top_protein_function_predictive_permodel$percent = top_protein_function_predictive_permodel$percent*100
+  if(raw_gene == FALSE) {
+    pdf(output_name)
+  } else {
+    pdf(output_name,width=10)
+  }
+  if(nrow(top_protein_function_predictive_permodel)>50) {
+    myplot = ggplot(top_protein_function_predictive_permodel[1:50,],aes(x=Var1,y=percent)) + geom_col() + coord_flip() + xlab("") + theme_classic()
+  } else {
+    myplot = ggplot(top_protein_function_predictive_permodel,aes(x=Var1,y=percent)) + geom_col() + coord_flip() + xlab("") + theme_classic()
+  }
+  print(myplot)
+  dev.off()
+  return(list(top_protein_function_predictive_permodel,prokka_annotations_each_model))
+}
+
+top_protein_function_early_vs_late_all_conditions_lmer = get_top_genes_in_models_from_lmer_res(output_lmer_window_adjusted_files,"top_protein_funcs_predictive_perc_no_before_condition_lmer_res.pdf",raw_gene = FALSE)
+
+top_protein_function_early_vs_late_all_conditions_lmer_T1D = get_top_genes_in_models_from_lmer_res(output_lmer_window_adjusted_files[grep("healthy_pre-t1d",output_lmer_window_adjusted_files)],"top_protein_funcs_predictive_perc_no_before_condition_lmer_res_T1D.pdf",raw_gene = FALSE)
+
+top_protein_function_early_vs_late_all_conditions_lmer_MIAA = get_top_genes_in_models_from_lmer_res(output_lmer_window_adjusted_files[grep("healthy_pre-MIAA",output_lmer_window_adjusted_files)],"top_protein_funcs_predictive_perc_no_before_condition_lmer_res_MIAA.pdf",raw_gene = FALSE)
+
+top_protein_function_early_vs_late_all_conditions_lmer_IA2A = get_top_genes_in_models_from_lmer_res(output_lmer_window_adjusted_files[grep("healthy_pre-IA2A",output_lmer_window_adjusted_files)],"top_protein_funcs_predictive_perc_no_before_condition_lmer_res_IA2A.pdf",raw_gene = FALSE)
+
+top_protein_function_early_vs_late_all_conditions_lmer_GAD = get_top_genes_in_models_from_lmer_res(output_lmer_window_adjusted_files[grep("healthy_pre-GAD",output_lmer_window_adjusted_files)],"top_protein_funcs_predictive_perc_no_before_condition_lmer_res_GAD.pdf",raw_gene = FALSE)
+
+
+top_protein_function_predictive_permodel_no_before_condition = get_top_genes_in_models(all_output_files_with_microbiome_genelevel_no_before_condition,"top_protein_funcs_predictive_perc_no_before_condition.pdf",raw_gene = FALSE)
+
+top_pathways_function_predictive_permodel_before_condition = get_top_genes_in_models(all_output_files_with_microbiome_pathwaylevel,"top_pathways_funcs_predictive_perc_before_condition.pdf",raw_gene = TRUE,is_species=FALSE,is_pathway=TRUE)
+
+top_species_function_predictive_permodel_before_condition = get_top_genes_in_models(all_output_files_with_microbiome_specieslevel,"top_species_funcs_predictive_perc_before_condition.pdf",raw_gene = TRUE,is_species=TRUE,is_pathway=FALSE)
+
+
+top_protein_function_predictive_permodel_no_before_condition_raw_genes = get_top_genes_in_models(all_output_files_with_microbiome_genelevel_no_before_condition,"top_protein_funcs_predictive_perc_no_before_condition_raw_genes.pdf",raw_gene = TRUE)
+
+
+top_protein_function_predictive_permodel = get_top_genes_in_models(all_output_files_with_microbiome_genelevel,"top_protein_funcs_predictive_perc.pdf",raw_gene = FALSE)
+
+top_protein_function_predictive_permodel_raw_genes = get_top_genes_in_models(all_output_files_with_microbiome_genelevel,"top_protein_funcs_predictive_perc_raw_genes.pdf",raw_gene = TRUE)
+
+
+# now look at before condition
+
+top_protein_function_predictive_permodel_only_before_condition = get_top_genes_in_models(all_output_files_with_microbiome_genelevel_microbiome_only_before_condition,"top_protein_funcs_predictive_perc_only_before_condition.pdf",raw_gene = FALSE)
+
+top_protein_function_predictive_permodel_only_before_condition_T1D = get_top_genes_in_models(all_output_files_with_microbiome_genelevel_microbiome_only_before_condition_T1D,"top_protein_funcs_predictive_perc_only_before_condition_T1D.pdf",raw_gene = FALSE)
+
+top_protein_function_predictive_permodel_only_before_condition_MIAA = get_top_genes_in_models(all_output_files_with_microbiome_genelevel_microbiome_only_before_condition_MIAA,"top_protein_funcs_predictive_perc_only_before_condition_MIAA.pdf",raw_gene = FALSE)
+
+top_protein_function_predictive_permodel_only_before_condition_GAD = get_top_genes_in_models(all_output_files_with_microbiome_genelevel_microbiome_only_before_condition_GAD,"top_protein_funcs_predictive_perc_only_before_condition_GAD.pdf",raw_gene = FALSE)
+
+top_protein_function_predictive_permodel_only_before_condition_IA2S = get_top_genes_in_models(all_output_files_with_microbiome_genelevel_microbiome_only_before_condition_IA2A,"top_protein_funcs_predictive_perc_only_before_condition_IA2A.pdf",raw_gene = FALSE)
+
+top_protein_function_predictive_permodel_only_before_condition_sero = get_top_genes_in_models(all_output_files_with_microbiome_genelevel_microbiome_only_before_condition_sero,"top_protein_funcs_predictive_perc_only_before_condition_sero.pdf",raw_gene = FALSE)
+
+top_protein_function_predictive_permodel_only_before_condition_sero_t1d = get_top_genes_in_models(all_output_files_with_microbiome_genelevel_microbiome_only_before_condition_sero_T1D,"top_protein_funcs_predictive_perc_only_before_condition_sero_T1D.pdf",raw_gene = FALSE)
+
+top_protein_function_predictive_permodel_before_condition_T1D = get_top_genes_in_models(all_output_files_with_microbiome_genelevel_microbiome_only_before_condition_T1D,"top_protein_funcs_predictive_perc_before_condition_T1D.pdf",raw_gene = FALSE)
+
+top_protein_function_predictive_permodel_before_condition_T1D_raw = get_top_genes_in_models(all_output_files_with_microbiome_genelevel_microbiome_only_before_condition_T1D,"top_protein_funcs_predictive_perc_before_condition_T1D_raw.pdf",raw_gene = TRUE)
+
+
+top_protein_function_predictive_permodel_before_condition_GAD = get_top_genes_in_models(all_output_files_with_microbiome_genelevel_microbiome_only_before_condition_GAD,"top_protein_funcs_predictive_perc_before_condition_GAD.pdf",raw_gene = FALSE)
+
+top_protein_function_predictive_permodel_before_condition_GAD_raw = get_top_genes_in_models(all_output_files_with_microbiome_genelevel_microbiome_only_before_condition_GAD,"top_protein_funcs_predictive_perc_before_condition_GAD_raw.pdf",raw_gene = TRUE)
+
+
+top_protein_function_predictive_permodel_before_condition_MIAA = get_top_genes_in_models(all_output_files_with_microbiome_genelevel_microbiome_only_before_condition_MIAA,"top_protein_funcs_predictive_perc_before_condition_MIAA.pdf",raw_gene = FALSE)
+
+top_protein_function_predictive_permodel_before_condition_MIAA_raw = get_top_genes_in_models(all_output_files_with_microbiome_genelevel_microbiome_only_before_condition_MIAA,"top_protein_funcs_predictive_perc_before_condition_MIAA_raw.pdf",raw_gene = TRUE)
+
+top_protein_function_predictive_permodel_before_condition_sero = get_top_genes_in_models(all_output_files_with_microbiome_genelevel_microbiome_only_before_condition_sero,"top_protein_funcs_predictive_perc_before_condition_sero.pdf")
+
+top_protein_function_predictive_permodel_before_condition_sero_raw = get_top_genes_in_models(all_output_files_with_microbiome_genelevel_microbiome_only_before_condition_sero,"top_protein_funcs_predictive_perc_before_condition_sero_raw.pdf",raw_gene = TRUE)
+
+top_protein_function_predictive_permodel_before_condition_sero_T1D = get_top_genes_in_models(all_output_files_with_microbiome_genelevel_microbiome_only_before_condition_sero_T1D,"top_protein_funcs_predictive_perc_before_condition_sero_T1D.pdf")
+
+top_protein_function_predictive_permodel_before_condition_sero_T1D_raw = get_top_genes_in_models(all_output_files_with_microbiome_genelevel_microbiome_only_before_condition_sero_T1D,"top_protein_funcs_predictive_perc_before_condition_sero_T1D_raw.pdf",raw_gene = TRUE)
+
+
+top_pathways_function_predictive_permodel_before_condition_sero_IA2A_raw = get_top_genes_in_models(all_output_files_with_microbiome_pathwaylevel_microbiome_only_before_condition_IA2A,"top_pathways_funcs_predictive_perc_before_condition_IA2A_raw.pdf",raw_gene = TRUE)
+
+
+# now get the similarity between models
+
+all_genes = unique(unlist(lapply(top_protein_function_predictive_permodel_no_before_condition[[2]],function(x) unique(x))))
+
+gene_presence_mat = lapply(top_protein_function_predictive_permodel_no_before_condition[[2]],function(x) as.numeric(all_genes%in%x))
+gene_presence_mat = do.call("rbind",gene_presence_mat)
+colnames(gene_presence_mat) = all_genes
+
+jaccard_dist = jaccardMatrix(gene_presence_mat, useCpp = TRUE, sparse = FALSE)
+
+jaccard_dist_upper = upper.tri(jaccard_dist, diag = FALSE)
+
+jaccard_dist_upper = jaccard_dist[jaccard_dist_upper] # this is jaccard similarity. so 1 is most similar
+
+pdf("jaccard_similarity_hist.pdf")
+hist(jaccard_dist_upper,xlab=c("Jaccard Similarity"),main=c(""))
+dev.off()
+
+sum(jaccard_dist_upper==1) # 1569
+mean(jaccard_dist_upper) # 0.008095909
+
+pdf("jaccard_similarity_hist_log2.pdf")
+hist(log2(jaccard_dist_upper + min(jaccard_dist_upper[jaccard_dist_upper>0])))
+dev.off()
+
+#pdf("jaccard_similarity_dens_log2.pdf")
+#plot(density(jaccard_dist_upper + min(jaccard_dist_upper[jaccard_dist_upper>0])))
+#dev.off()
+
+all_output_files = c(output_lasso_files,random_forest_files,cox_regression_files,logistic_regression_files)
+all_output_files = all_output_files[grepl(".rds",all_output_files)]
+
+confint.ipcwsurvivalROC <- function(object,parm=NULL,level=0.95,n.sim=2000,...){
+  if(object$iid==FALSE){  
+    stop(paste("Confidence intervals cannot be computed because you have chosen iid=FALSE (default) in the input of timeROC(). \n",sep=""))
+  }
+ ## browser()
+  # {{{ remove NA if there is NA
+  AUC <-  object$AUC[!is.na(object$AUC)]
+  se <- object$inference$vect_sd_1[!is.na(object$AUC)]
+  mat.iid <- object$inference$mat_iid_rep_1[,!is.na(object$AUC),drop=FALSE]
+  # }}}
+  # {{{ Pointwise confidence intervals
+  lower <- AUC*100-se*100*qnorm(1-(1-level)/2)
+  upper <- AUC*100+se*100*qnorm(1-(1-level)/2)
+  tab_AUC_1<-round(cbind(lower,upper),2)
+  colnames(tab_AUC_1)<-c(paste(((1-level)/2)*100,"%",sep=""),paste((1-(1-level)/2)*100,"%",sep=""))
+  return(tab_AUC_1)
+}
+
+
+get_AUCs = function(myfile) {
+  # first get baseline
+  if(grepl("18month-24month",basename(myfile))) {
+    basline = "18month-24month"
+  } else if(grepl("12month-18month",basename(myfile))) {
+    basline = "12month-18month"
+  } else if(grepl("6month-12month",basename(myfile))) {
+    basline = "6month-12month"
+  } else if(grepl("24month",basename(myfile))) {
+    basline = "24month"
+  } else if(grepl("18month",basename(myfile))) {
+    basline = "18month"
+  } else if(grepl("12month",basename(myfile))) {
+    basline = "12month"
+  } else if(grepl("6month",basename(myfile))) {
+    basline = "6month"
+  } else if(grepl("3month",basename(myfile))) {
+    basline = "3month"
+  } else if(grepl("1month-2month",basename(myfile))) {
+    basline = "1month-2month"
+  } else if(grepl("2month-3month",basename(myfile))) {
+    basline = "2month-3month"
+  } else if(grepl("2month",basename(myfile))) {
+    basline = "2month"
+  } else if(grepl("1month",basename(myfile))) {
+    basline = "1month"
+  } else {
+    basline = "NA"
+  }
+  # now get condition
+  if(grepl("healthy_pre-t1d",basename(myfile))) {
+    condition = "healthy_pre-t1d"
+  } else if (grepl("healthy_pre-MIAA",basename(myfile))) {
+    condition = "healthy_pre-MIAA"
+  } else if (grepl("healthy_pre-GAD",basename(myfile))) {
+    condition = "healthy_pre-GAD"
+  } else if (grepl("healthy_pre-IA2A",basename(myfile))) {
+    condition = "healthy_pre-IA2A"
+  } else if (grepl("healthy_pre-sero",basename(myfile))) {
+    condition = "healthy_pre-sero"
+  } else if (grepl("triple_converters_vs_T1D",basename(myfile))) {
+    condition = "triple_converters_vs_T1D" 
+  } else if (grepl("serconverters_or_T1D",basename(myfile))) {
+    condition = "serconverters_or_T1D"
+  } else {
+    condition = "NA" # there should be no NA for this category
+  }
+  if(grepl("before_vs_far_from_condition",basename(myfile))) {
+    time_before_event = "before_condition"
+  } else if(grepl("before_condition_case_vs_control",basename(myfile))) {
+    time_before_event = "before_condition_age_controlled"
+  } else {
+    time_before_event = "age_at_collection"
+  }
+  # now get HLA
+  if(grepl("DR3_DR4_only",basename(myfile))) {
+    HLA = "DR3_DR4_only"
+  } else if(grepl("DR4_DR4_only",basename(myfile))) {
+    HLA = "DR4_DR4_only"
+  } else if(grepl("DR4_DR8_only",basename(myfile))) { 
+    HLA = "DR4_DR8_only"
+  } else if(grepl("DR3_DR3_only",basename(myfile))) { 
+    HLA = "DR3_DR3_only"
+  } else if(grepl("DR4_DR1_only",basename(myfile))) { 
+    HLA = "DR4_DR1_only"
+  } else if(grepl("DR4_DR13",basename(myfile))) { 
+    HLA = "DR4_DR13_only"
+  } else if(grepl("all_HLA",basename(myfile))) { 
+    HLA = "all_HLA"
+  } else {
+    HLA = "NA" # should not be NA
+  }
+  
+  # now get proportion train
+  if(grepl("_proportion_train_0.66",basename(myfile))) {
+    proportion_train="2-3rds"
+  } else if(grepl("_proportion_train_0.5",basename(myfile))) {
+    proportion_train="50-50"
+  } else {
+    proportion_train = "NA" # never should be NA
+  }
+  # now get model
+  if(grepl("lasso_time_to_event",basename(myfile))) {
+    model = "lasso_cox-regression"
+  } else if(grepl("output_random_forest_time_to_event_",basename(myfile))) {
+    model = "random_survival_forest"
+  } else if(grepl("lasso_logistic_regression",basename(myfile))) {
+    model = "lasso_logistic_regression"
+  } else if(grepl("output_random_forest_binary_",basename(myfile))) {
+    model = "random_classification_forest"
+  } else if(grepl("output_plain_logistic_regression_feature_list_",basename(myfile))) {
+    model = "unregularized_logistic_regression"
+  } else if(grepl("output_cox_regression_time_to_event",basename(myfile))) {
+    model = "cox_regression"
+  } else {
+    model = "NA" # should never be NA
+  }
+  # get loss function used. 
+  if(grepl("C_loss",basename(myfile))) {
+    loss_function = "C-index"
+  } else {
+    loss_function = "logit"
+  }
+  if(grepl("ttest",basename(myfile))) {
+    feature_selection_method="ttest"
+  } else {
+    feature_selection_method="none"
+  }
+  
+  # get weigthing method
+  if(grepl("weighted",basename(myfile))) {
+    isWeighted= "weighted"
+  } else {
+    isWeighted= "not weighted"
+  }
+
+  if(grepl("species",basename(myfile))) {
+    microbiome_type = "species"
+  } else if(grepl("pathway",basename(myfile))) {
+    microbiome_type = "pathway"
+  } else if(model != "cox_regression" & model != "unregularized_logistic_regression" & !grepl("all_clinical",basename(myfile))) {
+    microbiome_type = "gene"
+  } else {
+    microbiome_type = "None"
+  }
+
+  
+  rds_output = readRDS(myfile)
+  if(length(rds_output) == 1) {
+    if(is.na(rds_output)) {
+      info_from_name = c(condition,basline,time_before_event,HLA,proportion_train,model,loss_function,feature_selection_method,microbiome_type,isWeighted)
+      info = c(info_from_name,rep(NA,11))
+      names(info) = c("condition","baseline","time_before_event","HLA","proportion_train","model","loss_function","feature_selection_method","microbiome_type","weighted","sample_number","features","cases_time_horizon","survivors_time_horizon","horizon_time","lower_CI_AUC","AUC","upper_CI_AUC","lower_CI_PR","PR","upper_CI_PR")
+      return(info)
+    }
+  }
+  if(model == "lasso_cox-regression" | model == "random_survival_forest" | model == "cox_regression") {
+    test_AUC = rds_output[[2]]$AUC
+    if(rds_output[[2]]$iid==TRUE) {
+      confidence_intervals = confint.ipcwsurvivalROC(rds_output[[2]])
+      confidence_intervals = confidence_intervals[match(names(test_AUC),rownames(confidence_intervals)),]
+      confidence_intervals = confidence_intervals/100
+      rownames(confidence_intervals) = names(test_AUC)
+      lower_CIs = confidence_intervals[,1]
+      upper_CIs = confidence_intervals[,2]
+    } else {
+      lower_CIs = rep(NA,length(names(test_AUC)))
+      upper_CIs = rep(NA,length(names(test_AUC)))
+    }
+    # now get precision recall 
+    if(model == "lasso_cox-regression" | model == "random_survival_forest") {
+      precision_recall_df = rds_output[[3]] 
+    } else if(model == "cox_regression") {
+      precision_recall_df = rds_output[[6]] 
+    }
+    preciaion_recall = precision_recall_df[,3]
+    preciaion_recall_CIs = precision_recall_df[,4]
+    preciaion_recall_CIs =  t(as.data.frame(strsplit(preciaion_recall_CIs,split="-")))
+    preciaion_recall_CIs_lower = preciaion_recall_CIs[,1]
+    preciaion_recall_CIs_upper = preciaion_recall_CIs[,2]
+    if(model == "lasso_cox-regression") {
+      coefs = rds_output[[5]]
+      # basically if coefs aren't in dgCMatrix class then switch model from lasso_cox-regression to regular cox regression
+      if(class(coefs) != "dgCMatrix" & model == "lasso_cox-regression") {
+        model = "cox_regression"
+      }
+    }
+    cases_time_t = rds_output[[2]]$Stats[,1]
+    survivors_time_t = rds_output[[2]]$Stats[,2]
+    if(model == "cox_regression") {
+      sample_counts = rds_output[[4]]
+    } else {
+      sample_counts = rds_output[[6]]
+    }
+    total_test_samples = sample_counts["total_test"]
+  } else if(model == "lasso_logistic_regression" | model == "random_classification_forest" | model == "unregularized_logistic_regression") {
+    test_output_stats = rds_output[[2]]
+    test_AUC = test_output_stats["AUC-ROC_Score"]
+    if(!is.na(test_AUC)) {
+      test_AUC_CIs = test_output_stats["AUC-ROC_CI"]
+      test_AUC_CIs = strsplit(test_AUC_CIs,split="-")[[1]]
+      lower_CIs = test_AUC_CIs[1]
+      upper_CIs = test_AUC_CIs[2]
+    } else {
+      test_AUC = NA
+      lower_CIs = NA
+      upper_CIs = NA
+    }
+    preciaion_recall = test_output_stats["AUC-PR_Score"]
+    if(!is.na(preciaion_recall)) {
+      test_PR_CIs = test_output_stats["AUC-PR_CI"]
+      test_PR_CIs = strsplit(test_PR_CIs,split="-")[[1]]
+      preciaion_recall_CIs_lower = test_PR_CIs[1]
+      preciaion_recall_CIs_upper = test_PR_CIs[2]
+    } else {
+      test_PR_CIs = NA
+      preciaion_recall_CIs_lower = NA
+      preciaion_recall_CIs_upper = NA
+    }
+    cases_time_t = rds_output[[4]]["test_case"]
+    survivors_time_t = rds_output[[4]]["test_ctrl"]
+    sample_counts = rds_output[[4]]
+    total_test_samples = sample_counts["total_test"]
+
+  }
+  if(model == "random_survival_forest" | model == "cox_regression" | model == "lasso_cox-regression") {
+    cases_time_1 = cases_time_t[1]
+    cases_time_3 = cases_time_t[2]
+    cases_time_5 = cases_time_t[3]
+  
+    survivors_time_1 = survivors_time_t[1]
+    survivors_time_3 = survivors_time_t[2]
+    survivors_time_5 = survivors_time_t[3]
+  
+    oneyear_AUC = test_AUC[1]
+    threeyear_AUC = test_AUC[2]
+    fiveyear_AUC = test_AUC[3]
+  
+    one_year_upper_CI = upper_CIs[1]
+    three_year_upper_CI = upper_CIs[2]
+    five_year_upper_CI = upper_CIs[3]
+
+    one_year_lower_CI = lower_CIs[1]
+    three_year_lower_CI = lower_CIs[2]
+    five_year_lower_CI = lower_CIs[3]
+    
+    oneyear_PR = preciaion_recall[1]
+    threeyear_PR = preciaion_recall[2]
+    fiveyear_PR = preciaion_recall[3]
+
+    one_year_upper_CI_PR = preciaion_recall_CIs_upper[1]
+    three_year_upper_CI_PR = preciaion_recall_CIs_upper[2]
+    five_year_upper_CI_PR = preciaion_recall_CIs_upper[3]
+
+    one_year_lower_CI_PR = preciaion_recall_CIs_lower[1]
+    three_year_lower_CI_PR = preciaion_recall_CIs_lower[2]
+    five_year_lower_CI_PR = preciaion_recall_CIs_lower[3]
+  }
+  if(model == "lasso_logistic_regression" | model == "random_classification_forest" | model == "cox_regression" | model == "unregularized_logistic_regression") {
+  features_to_examine = rds_output[[5]]
+  } else if(model == "lasso_cox-regression" | model == "random_survival_forest") {
+    features_to_examine = rds_output[[7]]
+  }
+  if(grepl("all_clinical",basename(myfile))) {
+    feature_vec = "all_clinical"
+  } else {
+    if(sum(grepl("number_autoantibodies",features_to_examine)>0)) {
+      features_to_examine = features_to_examine[-grep("number_autoantibodies",features_to_examine)]
+      features_to_examine = c(features_to_examine,"number_autoantibodies")
+    }
+    feature_vec = paste(features_to_examine,collapse=",")
+  }
+  
+  info_from_name = c(condition,basline,time_before_event,HLA,proportion_train,model,loss_function,feature_selection_method,microbiome_type,isWeighted)
+  
+  if(model == "random_survival_forest" | model == "cox_regression" | model == "lasso_cox-regression") {
+    info_from_name1year = c(info_from_name,total_test_samples,feature_vec,cases_time_1,survivors_time_1,"one_year_horizon",one_year_lower_CI,oneyear_AUC,one_year_upper_CI,one_year_lower_CI_PR,oneyear_PR,one_year_upper_CI_PR)
+    info_from_name3year = c(info_from_name,total_test_samples,feature_vec,cases_time_3,survivors_time_3,"three_year_horizon",three_year_lower_CI,threeyear_AUC,three_year_upper_CI,three_year_lower_CI_PR,threeyear_PR,three_year_upper_CI_PR)
+    info_from_name5year = c(info_from_name,total_test_samples,feature_vec,cases_time_5,survivors_time_5,"five_year_horizon",five_year_lower_CI,fiveyear_AUC,five_year_upper_CI,five_year_lower_CI_PR,fiveyear_PR,five_year_upper_CI_PR)
+    mydf = as.data.frame(rbind(info_from_name1year,info_from_name3year,info_from_name5year))
+    colnames(mydf) = c("condition","baseline","time_before_event","HLA","proportion_train","model","loss_function","feature_selection_method","microbiome_type","weighted","sample_number","features","cases_time_horizon","survivors_time_horizon","horizon_time","lower_CI_AUC","AUC","upper_CI_AUC","lower_CI_PR","PR","upper_CI_PR")
+    return(mydf) 
+  } else {
+    info = c(info_from_name,total_test_samples,feature_vec,cases_time_t,survivors_time_t,"NA",lower_CIs,test_AUC,upper_CIs,preciaion_recall_CIs_lower,preciaion_recall,preciaion_recall_CIs_upper)
+    names(info) = c("condition","baseline","time_before_event","HLA","proportion_train","model","loss_function","feature_selection_method","microbiome_type","weighted","sample_number","features","cases_time_horizon","survivors_time_horizon","horizon_time","lower_CI_AUC","AUC","upper_CI_AUC","lower_CI_PR","PR","upper_CI_PR")
+    return(info)
+  }
+}
+
+output_df_list = lapply(all_output_files, function(myfile) {
+  print(myfile)
+  return(get_AUCs(myfile))
+})
+
+output_df = do.call("rbind",output_df_list)
+
+output_df$AUC = as.numeric(output_df$AUC)
+output_df$upper_CI_AUC = as.numeric(output_df$upper_CI_AUC)
+output_df$lower_CI_AUC = as.numeric(output_df$lower_CI_AUC)
+
+output_df$PR = as.numeric(output_df$PR)
+output_df$upper_CI_PR[output_df$upper_CI_PR=="NA"] = NA
+output_df$lower_CI_PR[output_df$lower_CI_PR=="NA"] = NA
+output_df$upper_CI_PR = as.numeric(output_df$upper_CI_PR)
+output_df$lower_CI_PR = as.numeric(output_df$lower_CI_PR)
+
+write.csv(output_df,"lasso_rf_regression_output_df_with_AUCs.csv")
+
+```
+
+#locally visualize specifications
+
+
+```{r}
+setwd("/Users/samuelzimmerman/Dropbox (HMS)/Kostic_Lab/datasets/TEDDY/TEDDY_analysis_v2_march_2022")
+
+losso_cox_res = read.csv("lasso_rf_regression_output_df_with_AUCs.csv")
+# remove AUC NAs
+losso_cox_res = losso_cox_res[!is.na(losso_cox_res$AUC),] # 4148 models
+losso_cox_res = losso_cox_res[order(losso_cox_res$AUC),]
+
+losso_cox_res$rank = 1:nrow(losso_cox_res)
+losso_cox_res$sample_number2 = losso_cox_res$cases_time_horizon + losso_cox_res$survivors_time_horizon
+
+losso_cox_res$discrete = losso_cox_res$sample_number2
+losso_cox_res$discrete[losso_cox_res$discrete>=1 & losso_cox_res$discrete < 100] = 1
+losso_cox_res$discrete[losso_cox_res$discrete>=100 & losso_cox_res$discrete < 200] = 2
+losso_cox_res$discrete[losso_cox_res$discrete>=200 & losso_cox_res$discrete < 300] = 3
+losso_cox_res$discrete[losso_cox_res$discrete>=300 & losso_cox_res$discrete < 400] = 4
+
+losso_cox_res$sample_number_log = log(losso_cox_res$sample_number)/5
+
+losso_cox_res_high_case = losso_cox_res[losso_cox_res$cases_time_horizon>10 & losso_cox_res$survivors_time_horizon > 10,]
+losso_cox_res_high_case[is.na(losso_cox_res_high_case)] = "NA"
+losso_cox_res_high_case$everything = apply(losso_cox_res_high_case,1, function(x) paste(x,collapse="_"))
+
+losso_cox_res_high_case$lower_CI_AUC[which(losso_cox_res_high_case$AUC<0.5)] = NA
+losso_cox_res_high_case$upper_CI_AUC[which(losso_cox_res_high_case$AUC<0.5)] = NA
+losso_cox_res_high_case$AUC[which(losso_cox_res_high_case$AUC<0.5)] = 0.5
+losso_cox_res_high_case$lower_CI_AUC[which(losso_cox_res_high_case$lower_CI_AUC<0.5)] = 0.5
+
+#losso_cox_res_high_case$lower_CI_PR[which(losso_cox_res_high_case$PR<0.5)] = NA
+#losso_cox_res_high_case$upper_CI_PR[which(losso_cox_res_high_case$PR<0.5)] = NA
+#losso_cox_res_high_case$PR[which(losso_cox_res_high_case$PR<0.5)] = 0.5
+#losso_cox_res_high_case$lower_CI_AUC[which(losso_cox_res_high_case$lower_CI_AUC<0.5)] = 0.5
+
+library(caret)
+library(ComplexHeatmap)
+library(circlize)
+library(RColorBrewer)
+
+create_specification_curve = function(mydf,output_file_name,include_sample_plot=FALSE) {
+  # first check if we have more than one level for each variable of interest
+  variables_of_interest = c()
+  for (x in c("condition","baseline","time_before_event","HLA","proportion_train","model","loss_function","feature_selection_method","microbiome_type","weighted","features","horizon_time")) {
+    num_unique_vals = unique(mydf[,x])
+    num_unique_vals = num_unique_vals[!is.na(num_unique_vals)]
+    num_unique_vals = length(num_unique_vals)
+    if(num_unique_vals>1) {
+      variables_of_interest = c(variables_of_interest,x)
+    }
+  }
+  variables_of_interest = paste(variables_of_interest,collapse=" + ")
+  variables_of_interest = paste("~",variables_of_interest,sep="")
+  variables_of_interest = as.formula(variables_of_interest)
+  
+  mydum_vars = dummyVars(variables_of_interest, data=mydf)
+  
+  losso_cox_res_high_case_mat = predict(mydum_vars,mydf)
+  colnames(losso_cox_res_high_case_mat) = gsub("^condition","condition:",colnames(losso_cox_res_high_case_mat))
+  colnames(losso_cox_res_high_case_mat) = gsub("^baseline","baseline:",colnames(losso_cox_res_high_case_mat))
+  colnames(losso_cox_res_high_case_mat) = gsub("^HLA","HLA:",colnames(losso_cox_res_high_case_mat))
+  colnames(losso_cox_res_high_case_mat)  = gsub("^proportion_train","proportion_train:",colnames(losso_cox_res_high_case_mat))
+  colnames(losso_cox_res_high_case_mat) = gsub("^model","model:",colnames(losso_cox_res_high_case_mat))
+  colnames(losso_cox_res_high_case_mat) = gsub("^loss_function","loss_function:",colnames(losso_cox_res_high_case_mat))
+  colnames(losso_cox_res_high_case_mat) = gsub("^feature_selection_method","feature_selection_method:",colnames(losso_cox_res_high_case_mat))
+  colnames(losso_cox_res_high_case_mat) = gsub("^microbiome_type","microbiome_type:",colnames(losso_cox_res_high_case_mat))
+  colnames(losso_cox_res_high_case_mat) = gsub("^features","features:",colnames(losso_cox_res_high_case_mat))
+  colnames(losso_cox_res_high_case_mat) = gsub("^time_before_event","time_before_event:",colnames(losso_cox_res_high_case_mat))
+  colnames(losso_cox_res_high_case_mat) = gsub("^weighted","weighted:",colnames(losso_cox_res_high_case_mat))
+  losso_cox_res_high_case_mat = as.data.frame(losso_cox_res_high_case_mat)
+  losso_cox_res_high_case_mat = t(losso_cox_res_high_case_mat)
+  anno1 = AnnotationFunction(
+    fun = function(index, k, n) {
+        n = length(index)
+        pushViewport(viewport(xscale = c(0.5, n + 0.5), yscale = c(0.5, 1)))
+        grid.rect()
+        grid.segments(1:n, x$lower_CI_AUC, 1:n, x$upper_CI_AUC[index], default.units = "native")
+        grid.points(1:n, x$AUC[index], default.units = "native",size=unit(1, "mm"),gp =gpar(col="red"))
+        # the below will show the point with the max sample size
+        #grid.points(1107, 0.9, default.units = "native",size=unit(1, "mm"))
+        if(k == 1) grid.yaxis()
+        popViewport()
+    },
+    var_import = list(x = mydf),
+    n = nrow(mydf),
+    subsetable = TRUE,
+    height = unit(2, "cm")
+  )
+  anno2 = AnnotationFunction(
+    fun = function(index, k, n) {
+        n = length(index)
+        pushViewport(viewport(xscale = c(0.5, n + 0.5), yscale = c(min(x$sample_number2), max(x$sample_number2))))
+        grid.rect()
+        grid.points(1:n, x$sample_number2[index], default.units = "native",size=unit(1, "mm"),gp =gpar(col="red"))
+        if(k == 1) grid.yaxis(main=FALSE)
+        popViewport()
+    },
+    var_import = list(x = mydf),
+    n = nrow(mydf),
+    subsetable = TRUE,
+    height = unit(1, "cm")
+  )
+
+  #col_fun = colorRamp2(c(min(mydf$sample_number2), max(mydf$sample_number2)), c("blue", "red"))
+  
+  #col_fun = colorRamp2(seq(0,400,50), pals::alphabet(n=length(seq(0,400,50))))
+  #color_vec = c('1'="red",'2'="blue",'3'="green",'4'="black")
+  library(circlize)
+  color_vec = colorRamp2(breaks=c(min(mydf$sample_number),max(mydf$sample_number)), colors=c("white","black"))
+  #color_vec = mydf$sample_number2
+  #color_vec[color_vec>=1 & color_vec <50] = "#F0A0FF"
+  #color_vec[color_vec>=50 & color_vec <100] = "#0075DC"
+  #color_vec[color_vec>=100 & color_vec <150] = "#993F00"
+  #color_vec[color_vec>=150 & color_vec <200] = "#4C005C"
+  #color_vec[color_vec>=200 & color_vec <250] = "#191919"
+  #color_vec[color_vec>=250 & color_vec <300] = "#005C31"
+  #color_vec[color_vec>=300 & color_vec <350] = "#2BCE48"
+  #color_vec[color_vec>=350 & color_vec <400] = "#FFCC99"
+  #names(color_vec) = mydf$sample_number2
+  
+  colors = structure(c("#e0dcdc","#b04488"), names = c('0', '1'))
+  
+  pdf(output_file_name,width=10)
+  if(include_sample_plot==TRUE) {
+    ht = Heatmap(losso_cox_res_high_case_mat,cluster_rows=FALSE,cluster_columns=FALSE,column_labels=rep("",ncol(losso_cox_res_high_case_mat)),top_annotation = HeatmapAnnotation(AUC=anno1,samples1=anno2,samples=mydf$sample_number,col=list(samples=color_vec),annotation_label=c("AUC"," ","samples")),col=colors,name = "feature")
+  } else {
+    ht = Heatmap(losso_cox_res_high_case_mat,cluster_rows=FALSE,cluster_columns=FALSE,column_labels=rep("",ncol(losso_cox_res_high_case_mat)),top_annotation = HeatmapAnnotation(AUC=anno1,samples=mydf$sample_number,col=list(samples=color_vec),annotation_label=c("AUC","samples")),col=colors,name = "feature")
+  }
+draw(ht,padding = unit(c(0, 10, 2, 2), "mm"))
+  dev.off()
+}
+
+create_specification_curve(mydf=losso_cox_res_high_case,output_file_name="AUC_condition_heatmap_with_CIs2.pdf")
+
+#make a specification curve without before condition and without only clincal variables
+
+losso_cox_res_high_case_no_before_condition = losso_cox_res_high_case[losso_cox_res_high_case$time_before_event == "age_at_collection",]
+losso_cox_res_high_case_no_before_condition = losso_cox_res_high_case_no_before_condition[losso_cox_res_high_case_no_before_condition$features != "all_clinical",]
+losso_cox_res_high_case_no_before_condition = losso_cox_res_high_case_no_before_condition[losso_cox_res_high_case_no_before_condition$condition != "triple_converters_vs_T1D",]
+losso_cox_res_high_case_no_before_condition = losso_cox_res_high_case_no_before_condition[losso_cox_res_high_case_no_before_condition$condition != "serconverters_or_T1D",]
+
+losso_cox_res_high_case_no_before_condition_microbiome_only = losso_cox_res_high_case_no_before_condition[losso_cox_res_high_case_no_before_condition$features == "microbiome",]
+
+
+losso_cox_res_high_case_before_condition_only = losso_cox_res_high_case[losso_cox_res_high_case$time_before_event == "before_condition_age_controlled",]
+
+mean(losso_cox_res_high_case_no_before_condition$sample_number)
+sd(losso_cox_res_high_case_no_before_condition$sample_number)
+pdf("sample_number_hist.pdf")
+ggplot(losso_cox_res_high_case_no_before_condition, aes(x=sample_number)) + geom_histogram(color="black", fill="white") + theme_classic() + xlab("Sample Size")
+dev.off()
+
+create_specification_curve(mydf=losso_cox_res_high_case_no_before_condition,output_file_name="AUC_condition_heatmap_with_CIs_no_before_condition.pdf")
+
+create_specification_curve(mydf=losso_cox_res_high_case_before_condition_only,output_file_name="AUC_condition_heatmap_with_CIs_before_condition_only.pdf",include_sample_plot = TRUE)
+
+# specification curve with microbiome only
+
+losso_cox_res_high_case_microbiome_only = losso_cox_res_high_case_no_before_condition[losso_cox_res_high_case_no_before_condition$features == "microbiome",]
+create_specification_curve(mydf=losso_cox_res_high_case_microbiome_only,output_file_name="AUC_condition_heatmap_with_CIs_microbiome_only.pdf")
+
+# lets do a linear model to see what factors predict AUC
+
+losso_cox_res_high_case_no_before_condition$uses_Microbiome = grepl("microbiome",losso_cox_res_high_case_no_before_condition$features)
+losso_cox_res_high_case_no_before_condition$usesGRS2 = grepl("grs2",losso_cox_res_high_case_no_before_condition$features)
+losso_cox_res_high_case_no_before_condition$uses_num_autoantibodies = grepl("number_autoantibodies",losso_cox_res_high_case_no_before_condition$features)
+losso_cox_res_high_case_no_before_condition$uses_FDR = grepl("fdr",losso_cox_res_high_case_no_before_condition$features)
+
+AUC_prediction_res = lm(AUC ~ condition + baseline + HLA + proportion_train + model + feature_selection_method + microbiome_type + weighted + sample_number + uses_Microbiome + usesGRS2 + uses_FDR + uses_num_autoantibodies +  horizon_time,data=losso_cox_res_high_case_no_before_condition)
+
+library(sjPlot)
+plot_model(AUC_prediction_res, show.values = TRUE, value.offset = 0.3,sort.est=TRUE)
+
+AUC_prediction_res2 = lm(AUC ~ condition + baseline + HLA + proportion_train + model + feature_selection_method + microbiome_type + weighted + sample_number + features +  horizon_time,data=losso_cox_res_high_case_no_before_condition)
+
+AUC_prediction_res3 = lm(AUC ~ uses_Microbiome + usesGRS2 + uses_num_autoantibodies + uses_FDR,data=losso_cox_res_high_case_no_before_condition)
+
+pdf("best_predictors_by_AUC.pdf")
+plot_model(AUC_prediction_res2, show.values = TRUE, value.offset = 0.3,sort.est=TRUE,dot.size=1) + theme_classic() + ggtitle("")
+dev.off()
+
+plot_model(AUC_prediction_res3, show.values = TRUE, value.offset = 0.3,sort.est=TRUE)
+
+#losso_cox_res_high_case_no_before_condition$PR = as.numeric(losso_cox_res_high_case_no_before_condition$PR)
+#PR_prediction_res = lm(PR ~ condition + baseline + HLA + proportion_train + model + feature_selection_method + microbiome_type + weighted + sample_number + uses_Microbiome + usesGRS2 + uses_FDR + uses_num_autoantibodies horizon_time,data=losso_cox_res_high_case_no_before_condition)
+
+
+
+
+losso_cox_res_high_case_microbiome_only_no_triple = losso_cox_res_high_case_microbiome_only[losso_cox_res_high_case_microbiome_only$condition != "triple_converters_vs_T1D",]
+
+losso_cox_res_high_case_microbiome_only_no_triple_T1D = losso_cox_res_high_case_microbiome_only[losso_cox_res_high_case_microbiome_only$condition == "healthy_pre-t1d",]
+
+# lets make a specification curve but only with before condition
+
+losso_cox_res_high_case_before_condition = losso_cox_res_high_case[losso_cox_res_high_case$time_before_event == "before_condition",]
+losso_cox_res_high_case_before_condition = losso_cox_res_high_case_before_condition[(losso_cox_res_high_case_before_condition$features == "microbiome" & losso_cox_res_high_case_before_condition$microbiome_type == "gene") | losso_cox_res_high_case_before_condition$features == "all_clinical",]
+losso_cox_res_high_case_before_condition_T1D = losso_cox_res_high_case_before_condition[losso_cox_res_high_case_before_condition$condition == "healthy_pre-t1d",]
+losso_cox_res_high_case_before_condition_GAD = losso_cox_res_high_case_before_condition[losso_cox_res_high_case_before_condition$condition == "healthy_pre-GAD",]
+losso_cox_res_high_case_before_condition_sero = losso_cox_res_high_case_before_condition[losso_cox_res_high_case_before_condition$condition == "healthy_pre-sero",]
+losso_cox_res_high_case_before_condition_IA2A = losso_cox_res_high_case_before_condition[losso_cox_res_high_case_before_condition$condition == "healthy_pre-IA2A",]
+losso_cox_res_high_case_before_condition_MIAA = losso_cox_res_high_case_before_condition[losso_cox_res_high_case_before_condition$condition == "healthy_pre-MIAA",]
+losso_cox_res_high_case_before_condition_sero_T1D = losso_cox_res_high_case_before_condition[losso_cox_res_high_case_before_condition$condition == "serconverters_or_T1D",]
+
+create_specification_curve(mydf=losso_cox_res_high_case_before_condition_T1D,output_file_name="AUC_before_condition_heatmap_with_CIs_T1D.pdf")
+create_specification_curve(mydf=losso_cox_res_high_case_before_condition_GAD,output_file_name="AUC_before_condition_heatmap_with_CIs_GAD.pdf")
+create_specification_curve(mydf=losso_cox_res_high_case_before_condition_sero,output_file_name="AUC_before_condition_heatmap_with_CIs_sero.pdf")
+create_specification_curve(mydf=losso_cox_res_high_case_before_condition_IA2A,output_file_name="AUC_before_condition_heatmap_with_CIs_IA2A.pdf")
+create_specification_curve(mydf=losso_cox_res_high_case_before_condition_MIAA,output_file_name="AUC_before_condition_heatmap_with_CIs_MIAA.pdf")
+create_specification_curve(mydf=losso_cox_res_high_case_before_condition_sero_T1D,output_file_name="AUC_before_condition_heatmap_with_CIs_sero_T1D.pdf")
+
+
+#lets look at pathways
+
+losso_cox_res_high_case_before_condition = losso_cox_res_high_case[losso_cox_res_high_case$time_before_event == "before_condition",]
+losso_cox_res_high_case_before_condition = losso_cox_res_high_case_before_condition[(losso_cox_res_high_case_before_condition$features == "microbiome" & losso_cox_res_high_case_before_condition$microbiome_type == "pathway") | losso_cox_res_high_case_before_condition$features == "all_clinical",]
+losso_cox_res_high_case_before_condition_T1D = losso_cox_res_high_case_before_condition[losso_cox_res_high_case_before_condition$condition == "healthy_pre-t1d",]
+losso_cox_res_high_case_before_condition_GAD = losso_cox_res_high_case_before_condition[losso_cox_res_high_case_before_condition$condition == "healthy_pre-GAD",]
+losso_cox_res_high_case_before_condition_sero = losso_cox_res_high_case_before_condition[losso_cox_res_high_case_before_condition$condition == "healthy_pre-sero",]
+losso_cox_res_high_case_before_condition_IA2A = losso_cox_res_high_case_before_condition[losso_cox_res_high_case_before_condition$condition == "healthy_pre-IA2A",]
+losso_cox_res_high_case_before_condition_MIAA = losso_cox_res_high_case_before_condition[losso_cox_res_high_case_before_condition$condition == "healthy_pre-MIAA",]
+losso_cox_res_high_case_before_condition_sero_T1D = losso_cox_res_high_case_before_condition[losso_cox_res_high_case_before_condition$condition == "serconverters_or_T1D",]
+
+create_specification_curve(mydf=losso_cox_res_high_case_before_condition_T1D,output_file_name="AUC_before_condition_heatmap_with_CIs_T1D_pway.pdf")
+create_specification_curve(mydf=losso_cox_res_high_case_before_condition_GAD,output_file_name="AUC_before_condition_heatmap_with_CIs_GAD_pway.pdf")
+create_specification_curve(mydf=losso_cox_res_high_case_before_condition_sero,output_file_name="AUC_before_condition_heatmap_with_CIs_sero_pway.pdf")
+create_specification_curve(mydf=losso_cox_res_high_case_before_condition_IA2A,output_file_name="AUC_before_condition_heatmap_with_CIs_IA2A_pway.pdf")
+create_specification_curve(mydf=losso_cox_res_high_case_before_condition_MIAA,output_file_name="AUC_before_condition_heatmap_with_CIs_MIAA_pway.pdf")
+create_specification_curve(mydf=losso_cox_res_high_case_before_condition_sero_T1D,output_file_name="AUC_before_condition_heatmap_with_CIs_sero_T1D_pway.pdf")
+
+
+```
+
+#Lets create an alluvial plot
+
+```{r}
+library(ggalluvial)
+library(dplyr)
+library(reshape2)
+losso_cox_res_high_case_alluvial = losso_cox_res_high_case_no_before_condition[,c("condition","baseline","HLA","proportion_train","model","feature_selection_method","microbiome_type","weighted","features","horizon_time")]
+losso_cox_res_high_case_alluvial$baseline[losso_cox_res_high_case_alluvial$baseline == "NA"] = "all"
+
+losso_cox_res_high_case_alluvial = unique(losso_cox_res_high_case_alluvial)
+
+losso_cox_res_high_case_alluvial = losso_cox_res_high_case_alluvial %>% group_by(condition,baseline,HLA,proportion_train,model,feature_selection_method,microbiome_type,weighted,features,horizon_time) %>% tally()
+colnames(losso_cox_res_high_case_alluvial)[11] = "Freq"
+
+#losso_cox_res_high_case_alluvial = losso_cox_res_high_case_alluvial[-which(losso_cox_res_high_case_alluvial$time_before_event=="before_condition"),]
+library(scales)
+pdf("alluvial_plot.pdf",width=15,height=7)
+ggplot(losso_cox_res_high_case_alluvial,aes(y = Freq, axis1 = baseline,axis2=HLA,axis3=proportion_train,axis4=feature_selection_method,axis5=model,axis6=weighted,axis7=microbiome_type,axis8=features,axis9=horizon_time)) + geom_alluvium(aes(fill=condition)) + geom_stratum(width = 1/12, fill = "black", color = "grey") + geom_label(stat = "stratum", aes(label = after_stat(stratum))) + theme_classic() + theme(legend.position="bottom")
+dev.off()
+
+
+
+pdf("stratum_plot.pdf",width=15,height=7)
+ggplot(losso_cox_res_high_case_alluvial,aes(y = Freq, axis1 = baseline,axis2=HLA,axis3=proportion_train,axis4=feature_selection_method,axis5=model,axis6=weighted,axis7=microbiome_type,axis8=features,axis9=horizon_time)) + geom_stratum(width = 1/12) + geom_label(stat = "stratum", aes(label = after_stat(stratum))) + theme_classic() + theme(legend.position="bottom")
+dev.off()
+
+losso_cox_res_high_case_alluvial_v2 = losso_cox_res_high_case_alluvial
+losso_cox_res_high_case_alluvial_v2$Freq = losso_cox_res_high_case_alluvial_v2$Freq/nrow(losso_cox_res_high_case_alluvial_v2)
+
+pdf("stratum_plot.pdf",width=15,height=7)
+ggplot(losso_cox_res_high_case_alluvial_v2,aes(y = Freq, axis1 = baseline,axis2=HLA,axis3=proportion_train,axis4=feature_selection_method,axis5=model,axis6=weighted,axis7=microbiome_type,axis8=features,axis9=horizon_time)) + geom_stratum(width = 1) + geom_label(stat = "stratum", aes(label = after_stat(stratum))) + theme_classic() + scale_x_discrete(limits = c("baseline","HLA","proportion_train","feature_selection","model","weigthed","microbiome_type","features","horizon_time"))
+dev.off()
+
+# lets create a stacked bar chart showing the proportion of each specification used
+losso_cox_res_high_case_alluvial_df =as.data.frame(losso_cox_res_high_case_alluvial)
+losso_cox_res_high_case_alluvial_df = losso_cox_res_high_case_alluvial_df[,-ncol(losso_cox_res_high_case_alluvial_df)]
+losso_cox_res_high_case_alluvial_df_melted = do.call("rbind",lapply(1:ncol(losso_cox_res_high_case_alluvial_df), function(colNumber) {
+  mycol = losso_cox_res_high_case_alluvial_df[,colNumber]
+  percent_specifide = (table(mycol)/length(mycol))*100
+  percent_specifide = as.data.frame(percent_specifide)
+  percent_specifide$specification = colnames(losso_cox_res_high_case_alluvial_df)[colNumber]
+  return(percent_specifide)
+}))
+
+ggplot(losso_cox_res_high_case_alluvial_df_melted, aes(y=Freq,))
+```
+
+
+#Lets plot gene abundance against time to T1D
+
+```{r}
+library(data.table)
+# get key of location of all genes
+
+metadata = read.csv("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/teddy_metadata_20190821_with_GRS2.csv")
+
+metadata$age_to_t1D = metadata$age_t1d-metadata$age_at_collection
+metadata$age_to_first_MIAA = metadata$age_first_MIAA-metadata$age_at_collection
+metadata$age_to_first_GAD = metadata$age_first_GAD-metadata$age_at_collection
+metadata$age_to_first_IA2A = metadata$age_first_IA2A-metadata$age_at_collection
+metadata$age_to_sero = metadata$age_mult_persist-metadata$age_at_collection
+
+
+raw_abundances = list.files("/n/scratch3/users/s/sez10/_RESTORE/TEDDY/parsed_data",pattern=".csv",full.names = TRUE)
+raw_abundances = raw_abundances[-grep("^healthy",basename(raw_abundances))]
+raw_abundances = raw_abundances[-grep("total_genes_left_each_timepoint.csv",basename(raw_abundances))]
+
+gene_list = c("GBPIOFDB_16530","ACBOPPBJ_35304")
+
+gene_to_file_mapping = fread("/n/scratch3/users/s/sez10/_RESTORE/TEDDY/parsed_data/gene_locs.txt",header=FALSE,data.table=FALSE)
+
+files_to_look_at = gene_to_file_mapping[match(gene_list,gene_to_file_mapping[,1]),"V2"]
+files_to_look_at = paste("/n/scratch3/users/s/sez10/_RESTORE/TEDDY/parsed_data",files_to_look_at,sep="/")
+
+library(dplyr)
+library(data.table)
+abundances_of_sig_genes_test = lapply(files_to_look_at, function(x) {
+  print(x)
+  d_small = fread(x,sep=",",header=TRUE,data.table=FALSE,nrow=1) %>% select(-V1)
+  ## aa.csv will have an extra row for the gene names so lets remove that
+  has_extra_row = d_small[1,1]=="genename"
+  if(has_extra_row == TRUE) {
+    d = fread(x,sep=",",header=TRUE,data.table=FALSE,skip=1)
+    d = d[,-1]
+  } else {
+    d = fread(x,sep=",",header=TRUE,data.table=FALSE) %>% select(-V1)
+  }
+  rownames(d) = d$genename
+  d = d[,-1]
+  found_genes = gene_list[gene_list%in%rownames(d)]
+  abundance_temp_sig = d[rownames(d)%in%found_genes,,drop=FALSE]
+  rm(d)
+  return(abundance_temp_sig)
+})
+abundances_of_sig_genes_test_df = do.call("rbind",abundances_of_sig_genes_test)
+
+# log normalize
+abundances_of_sig_genes_test_df_log = apply(abundances_of_sig_genes_test_df,1,function(x) {
+  min_pos_value = min(x[x>0])
+  log2(x+min_pos_value)
+})
+abundances_of_sig_genes_test_df_log = t(abundances_of_sig_genes_test_df_log)
+
+abundance_metadata_cols = intersect(rownames(abundances_of_sig_genes_test_df_log),metadata$Run)
+
+abundances_of_sig_genes_test_df_log = abundances_of_sig_genes_test_df_log[abundance_metadata_cols,]
+
+metadata_ordered = metadata[match(abundance_metadata_cols,metadata$Run),]
+
+abundance_metadata = cbind(abundances_of_sig_genes_test_df_log,metadata_ordered)
+
+abundance_metadata$hasT1D = as.factor(as.numeric(!is.na(abundance_metadata$age_t1d)))
+abundance_metadata$hasSero = as.factor(as.numeric(!is.na(abundance_metadata$age_mult_persist)))
+abundance_metadata$hasMIAA = as.factor(as.numeric(!is.na(abundance_metadata$age_first_MIAA)))
+abundance_metadata$hasGAD = as.factor(as.numeric(!is.na(abundance_metadata$age_first_GAD)))
+abundance_metadata$hasIA2A = as.factor(as.numeric(!is.na(abundance_metadata$age_first_IA2A)))
+
+library(ggplot2)
+pdf("abundance_GBPIOFDB_16530_age_to_t1d.pdf")
+ggplot(abundance_metadata,aes(x=age_at_collection,y=GBPIOFDB_16530,color=hasT1D)) + geom_point() + geom_smooth()
+dev.off()
+
+pdf("abundance_GBPIOFDB_16530_age_to_seroconversion.pdf")
+ggplot(abundance_metadata,aes(x=age_at_collection,y=GBPIOFDB_16530,color=hasSero)) + geom_point() + geom_smooth()
+dev.off()
+
+pdf("abundance_ACBOPPBJ_35304_age_to_t1d.pdf")
+ggplot(abundance_metadata,aes(x=age_at_collection,y=ACBOPPBJ_35304,color=hasT1D)) + geom_point() + geom_smooth()
+dev.off()
+
+pdf("abundance_ACBOPPBJ_35304_age_to_seroconversion.pdf")
+ggplot(abundance_metadata,aes(x=age_at_collection,y=ACBOPPBJ_35304,color=hasSero)) + geom_point() + geom_smooth()
+dev.off()
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+#Just analyze the models with all clinical variables
+
+```{r}
+library(caret)
+library(data.table)
+library(pROC)
+library(timeROC)
+library(glmnet)
+library(doMC)
+library(survival)
+library(randomForestSRC)
+library(pec)
+library(pROC)
+library(caTools)
+library(parallel)
+library(locStra)
+
+
+output_lasso_files_all_clinical = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4",pattern = "all_clinical",full.names = TRUE,recursive=TRUE)
+
+output_lasso_files_all_clinical = output_lasso_files_all_clinical[-grep("triple_converters",output_lasso_files_all_clinical)]
+
+myAUC = lapply(output_lasso_files_all_clinical, function(myfile) {
+  results = readRDS(myfile)
+  if(length(results) == 1) {
+    return(NA)
+  }
+  test_AUC = results[[2]]["AUC-ROC_Score"]
+  sample_size  = sum(results[[4]][c("total_train","total_test")])
+  return(c(test_AUC,sample_size,myfile))
+})
+myAUC = myAUC[sapply(myAUC,length)>1]
+myAUC = do.call("rbind",myAUC)
+myAUC = as.data.frame(myAUC)
+myAUC[,2] = as.numeric(myAUC[,2])
+myAUC[,1] = as.numeric(myAUC[,1])
+myAUC = myAUC[myAUC[,2]>19 & myAUC[,1] > 0.7,]
+
+
+my_factors = lapply(myAUC[,3], function(myfile) {
+  results = readRDS(myfile)
+  if(length(results) == 1) {
+    return(NA)
+  }
+  return(rownames(results[[3]])[-1])
+})
+my_factors_each = unique(unlist(my_factors))
+
+my_factors = unique(unlist(my_factors))
+
+my_factors_nums = lapply(myAUC[,3], function(myfile) {
+  results = readRDS(myfile)
+  if(length(results) == 1) {
+    return(NA)
+  }
+  covars = results[[3]]
+  covars = as.matrix(covars)
+  return(covars[match(my_factors,rownames(covars)),])
+})
+
+my_factors_nums = do.call("cbind",my_factors_nums)
+rownames(my_factors_nums) = my_factors
+
+avg_beta = rowMeans(my_factors_nums,na.rm=TRUE)
+avg_beta = sort(avg_beta)
+```
+
+#Compare all clinical model to same model but using microbiome features instead
+
+```{r}
+library(caret)
+library(data.table)
+library(pROC)
+library(timeROC)
+library(glmnet)
+library(doMC)
+library(survival)
+library(randomForestSRC)
+library(pec)
+library(pROC)
+library(caTools)
+library(parallel)
+library(locStra)
+
+
+output_lasso_files_all_clinical = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4",pattern = "all_clinical",full.names = TRUE,recursive=TRUE)
+
+microbiome_gene_all_features = gsub("_microbiome_selection_method_NA_","_microbiome_selection_method_all_",output_lasso_files_all_clinical)
+microbiome_gene_all_features = gsub("_feature_list_all_clinical","_feature_list_microbiome",microbiome_gene_all_features)
+
+microbiome_species_all_features = gsub("output_","_speciesoutput_",microbiome_gene_all_features)
+microbiome_pathway_all_features = gsub("output_","_pathwayoutput_",microbiome_gene_all_features)
+
+sample_sizes = sapply(output_lasso_files_all_clinical, function(myfile) {
+  results = readRDS(myfile)
+  if(length(results) == 1) {
+    return(NA)
+  }
+  sample_size  = sum(results[[4]][c("total_train","total_test")])
+  return(sample_size)
+})
+
+getAUC = function(fileList) {
+  myAUC = sapply(fileList, function(myfile) {
+    results = readRDS(myfile)
+    if(length(results) == 1) {
+      return(NA)
+    }
+    test_AUC = results[[2]]["AUC-ROC_Score"]
+    return(c(test_AUC))
+  })
+  return(myAUC)
+}
+
+clinical_AUCs = getAUC(output_lasso_files_all_clinical)
+microbiome_gene_AUCs = getAUC(microbiome_gene_all_features)
+microbiome_species_AUCs = getAUC(microbiome_species_all_features)
+microbiome_pathway_AUCs = getAUC(microbiome_pathway_all_features)
+
+all_AUCs_df = data.frame(clinical=clinical_AUCs,gene=microbiome_gene_AUCs,species=microbiome_species_AUCs,pathways=microbiome_pathway_AUCs)
+all_AUCs_df[,1] = as.numeric(all_AUCs_df[,1])
+all_AUCs_df[,2] = as.numeric(all_AUCs_df[,2])
+all_AUCs_df[,3] = as.numeric(all_AUCs_df[,3])
+all_AUCs_df[,4] = as.numeric(all_AUCs_df[,4])
+
+difference_AUC_df = all_AUCs_df[,c("clinical","gene","species","pathways")]
+difference_AUC_df$clinical[is.na(difference_AUC_df$clinical)] = 0
+
+difference_AUC_df$gene = difference_AUC_df$gene - difference_AUC_df$clinical
+difference_AUC_df$species = difference_AUC_df$species - difference_AUC_df$clinical
+difference_AUC_df$pathways = difference_AUC_df$pathways - difference_AUC_df$clinical
+# remove clinical variable
+difference_AUC_df = difference_AUC_df[,-1]
+
+gene_dff_avg = mean(difference_AUC_df$gene)
+pathway_dff_avg = mean(difference_AUC_df$pathways)
+species_dff_avg = mean(difference_AUC_df$species)
+library(reshape2)
+
+```
+

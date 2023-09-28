@@ -1,0 +1,147 @@
+---
+title: "TEDDY_species_pathways_binary_models"
+author: "Sam Zimmerman"
+date: "2023-05-24"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{bash}
+#run lasso binary regression 
+
+/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_pathway_no_header.csv
+
+/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_species_no_header.csv
+
+split -l 50 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_pathway_no_header.csv models_input_files_parsed_v4_pathway_no_header_before_condition_
+
+split -l 50 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_species_no_header.csv models_input_files_parsed_v4_species_no_header_before_condition_
+
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 scripts/run_lasso_binary_bulk.bash models_input_files_parsed_v4_pathway_no_header_before_condition_aa microbiome NA all 1 NA
+
+for x in models_input_files_parsed_v4_pathway_no_header_before_condition_*
+do
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 scripts/run_lasso_binary_bulk.bash ${x} microbiome NA all 1 NA
+done
+
+for x in models_input_files_parsed_v4_species_no_header_before_condition_*
+do
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 scripts/run_lasso_binary_bulk.bash ${x} microbiome NA all 1 NA
+done
+
+```
+
+```{bash}
+split -l 10 input_files_ttest_sig_v4_pathways_species.csv input_files_ttest_sig_v4_pathways_species_
+
+for x in input_files_ttest_sig_v4_pathways_species_*
+do
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 scripts/run_lasso_binary_bulk.bash ${x} microbiome NA ttest_sig 1 NA
+done
+
+# random forest
+
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-04:00 scripts/run_rf_bulk.bash input_files_ttest_sig_v4_pathways_species_aa microbiome NA ttest_sig 1 NA
+
+
+for x in input_files_ttest_sig_v4_pathways_species_*
+do
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-04:00 scripts/run_rf_bulk.bash ${x} microbiome NA ttest_sig 1 NA
+done
+
+Rscript scripts/find_failed_job_folders.R /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/input_files_ttest_sig_v4_pathways_species.csv _speciesoutput_random_forest_binary_NA_loss_microbiome_selection_method_ttest_sig_feature_list_microbiome.rds failed_rf_binary_species_microbiome.txt
+
+Rscript scripts/find_failed_job_folders.R /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/input_files_ttest_sig_v4_pathways_species.csv _pathwayoutput_random_forest_binary_NA_loss_microbiome_selection_method_ttest_sig_feature_list_microbiome.rds failed_rf_binary_pathway_microbiome.txt
+
+cat failed_rf_binary_species_microbiome.txt failed_rf_binary_pathway_microbiome.txt > failed_rf_binary_species_pathway_microbiome.txt
+
+split -l 10 failed_rf_binary_species_pathway_microbiome.txt failed_rf_binary_species_pathway_microbiome_
+
+for x in failed_rf_binary_species_pathway_microbiome_*
+do
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-04:00 scripts/run_rf_bulk.bash ${x} microbiome NA ttest_sig 1 NA
+done
+
+```
+
+#Now run models but combine autoantibodies and such with microbiome genes
+
+```{bash}
+grep -v "healthy_pre-t1d" /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_species_no_header.csv > /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_species_no_header_no_healthy_pret1d.csv
+
+grep "healthy_pre-t1d" /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_species_no_header.csv > /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_species_no_header_healthy_pret1d.csv
+
+grep -v "healthy_pre-t1d" /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_pathway_no_header.csv > /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_pathway_no_header_no_healthy_pret1d.csv
+
+grep "healthy_pre-t1d" /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_pathway_no_header.csv > /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_pathway_no_header_healthy_pret1d.csv
+
+split -l 50 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_species_no_header_no_healthy_pret1d.csv models_input_files_parsed_v4_species_no_header_no_healthy_pret1d_
+
+split -l 50 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_species_no_header_healthy_pret1d.csv models_input_files_parsed_v4_species_no_header_healthy_pret1d_
+
+split -l 50 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_pathway_no_header_no_healthy_pret1d.csv models_input_files_parsed_v4_pathway_no_header_no_healthy_pret1d_
+
+split -l 50 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_pathway_no_header_healthy_pret1d.csv models_input_files_parsed_v4_pathway_no_header_healthy_pret1d_
+
+#run lasso
+
+for x in models_input_files_parsed_v4_species_no_header_no_healthy_pret1d_*
+do
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 scripts/run_lasso_binary_bulk.bash ${x} microbiome,fdr,grs2 fdr,grs2 all 1 NA
+done
+
+for x in models_input_files_parsed_v4_species_no_header_healthy_pret1d_*
+do
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 scripts/run_lasso_binary_bulk.bash ${x} microbiome,number_autoantibodies,fdr,grs2 number_autoantibodies,fdr,grs2 all 1 NA
+done
+
+for x in models_input_files_parsed_v4_pathway_no_header_no_healthy_pret1d_*
+do
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 scripts/run_lasso_binary_bulk.bash ${x} microbiome,fdr,grs2 fdr,grs2 all 1 NA
+done
+
+for x in models_input_files_parsed_v4_pathway_no_header_healthy_pret1d_*
+do
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 scripts/run_lasso_binary_bulk.bash ${x} microbiome,number_autoantibodies,fdr,grs2 number_autoantibodies,fdr,grs2 all 1 NA
+done
+
+
+```
+
+#Now do the same thing but with ttest_sig
+
+```{bash}
+grep -v "healthy_pre-t1d" /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/input_files_ttest_sig_v4_pathways_species.csv > /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/input_files_ttest_sig_v4_pathways_species_no_healthyT1d.csv
+
+grep "healthy_pre-t1d" /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/input_files_ttest_sig_v4_pathways_species.csv > /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/input_files_ttest_sig_v4_pathways_species_healthyT1d.csv
+
+split -l 10 input_files_ttest_sig_v4_pathways_species_no_healthyT1d.csv input_files_ttest_sig_v4_pathways_species_no_healthyT1d_
+
+split -l 10 input_files_ttest_sig_v4_pathways_species_healthyT1d.csv input_files_ttest_sig_v4_pathways_species_healthyT1d_
+
+for x in input_files_ttest_sig_v4_pathways_species_no_healthyT1d_*
+do
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 scripts/run_lasso_binary_bulk.bash ${x} microbiome,fdr,grs2 fdr,grs2 ttest_sig 1 NA
+done
+
+for x in input_files_ttest_sig_v4_pathways_species_healthyT1d_*
+do
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 scripts/run_lasso_binary_bulk.bash ${x} microbiome,number_autoantibodies,fdr,grs2 number_autoantibodies,fdr,grs2 ttest_sig 1 NA
+done
+
+
+for x in input_files_ttest_sig_v4_pathways_species_no_healthyT1d_*
+do
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-04:00 scripts/run_rf_bulk.bash ${x} microbiome,fdr,grs2 fdr,grs2 ttest_sig 1 NA
+done
+
+for x in input_files_ttest_sig_v4_pathways_species_healthyT1d_*
+do
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-04:00 scripts/run_rf_bulk.bash ${x} microbiome,number_autoantibodies,fdr,grs2 number_autoantibodies,fdr,grs2 ttest_sig 1 NA
+done
+
+```
+

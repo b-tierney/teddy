@@ -1,0 +1,1030 @@
+---
+title: "run_microbiome_metadata_predictions_v3"
+author: "Sam Zimmerman"
+date: "2022-08-12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Process data to get ready for prediction
+
+```{r}
+library(dplyr)
+library(survival)
+library(timeROC)
+library(ggplot2)
+
+# read in abundance data
+microbiome_abundances = read.csv("~/Dropbox (HMS)/Kostic_Lab/datasets/TEDDY/metagenome_genotype_analysis/lasso_sig_gene_abundances_all_samples_df.csv")
+rownames(microbiome_abundances) = microbiome_abundances[,1]
+microbiome_abundances = microbiome_abundances[,-1]
+
+# log data
+microbiome_abundances_log = apply(microbiome_abundances,1, function(x) {
+  min_val = min(x[x>0])
+  x = x + min_val
+  x = log(x)
+  return(x)
+})
+#microbiome_abundances_log = apply(microbiome_abundances, 1, function(x) {
+#  RankNorm(x)
+#})
+microbiome_abundances_log = t(microbiome_abundances_log)
+# get sample metadata
+sample_metadata = read.csv("~/Dropbox (HMS)/Kostic_Lab/datasets/TEDDY/analysis_old_assembly_alignment/teddy_old_analysis/teddy_metadata_20190821_with_GRS2.csv")
+# only include samples I have GRS score for
+sample_metadata = sample_metadata[-which(is.na(sample_metadata$GRS_score)),]
+
+# get samples we have metadata and abundance data for
+
+metadata_abundance_samples= intersect(colnames(microbiome_abundances_log),sample_metadata$Run)
+
+microbiome_abundances_log_intersection = microbiome_abundances_log[,metadata_abundance_samples]
+sample_metadata_ordered = sample_metadata[match(metadata_abundance_samples,sample_metadata$Run),]
+
+# summarize metadata so I have an observation per subject. get subject level metadata. use t1d times if subject gets T1D. else use last time of followup
+sample_metadata_ordered_split = split(sample_metadata_ordered,sample_metadata_ordered$m138_maskid)
+subject_metadata_ordered= do.call("rbind",lapply(sample_metadata_ordered_split, function(subject) {
+  hasT1D = unique(subject$t1d)
+  fdr = unique(subject$fdr)
+  grs2 = unique(subject$GRS_score)
+  if(hasT1D == TRUE) {
+    time = unique(subject$age_t1d)
+  } else {
+    chosen_subject = subject[which.max(subject$age_at_collection),]
+    time = unique(chosen_subject$age_at_collection)
+  }
+  return(c(time,hasT1D,fdr,grs2))  
+}))
+subject_metadata_ordered = as.data.frame(subject_metadata_ordered)
+colnames(subject_metadata_ordered) = c("time","getsT1D","fdr","grs2")
+
+
+```
+
+#Predictions for microbiome only
+
+```{r}
+day_beginv = c(92, 183, 365, 548, 730,912,1095)
+# times we will predict on. e.g. if landmark is 105 days, and day_end is 365.25 then we predict T1D status at 470.25 days
+day_endv <- c(365.25,365.25*3,5*365.25,8*365.25)
+
+# function that removes subjects who were censored or had T1D before landmark time
+get_landmark_db = function(mydf,day_begin_temp) {
+  bool_temp = which(mydf$time < day_begin_temp)
+  if(length(bool_temp) >0) {
+    newDF = mydf[-bool_temp,]
+    return(newDF)
+  } else {
+    return(mydf)
+  }
+}
+
+create_IC_se <- function(table,table_se,confidencev=1.96, class){
+  n1 <- dim(table)[1]
+  n2 <- dim(table)[2]
+  output <- matrix(NA, nrow = n1, ncol = n2)
+  for (i in 1:n1) {
+    for (j in 1:n2) {
+      if (class == "up") {
+        output[i,j] <- min(table[i,j] + confidencev * table_se[i,j],1)
+      }
+      else{
+        output[i,j] <- max(table[i,j] - confidencev * table_se[i,j],0)
+      }
+    }
+  }
+  rownames(output) <-  rownames(table)
+  colnames(output) <-  colnames(table)
+    return(output)
+}
+
+
+n_nested = 10
+
+AUC_m_1_microbiome_only <- matrix(NA, nrow = length(day_beginv), ncol = length(day_endv))
+seAUC_m_1_microbiome_only <- matrix(NA, nrow = length(day_beginv), ncol = length(day_endv))
+
+set.seed(1986)
+
+for (x_count in 1:length(day_beginv)) {
+  begin_time = day_beginv[x_count]
+  day_end = begin_time + day_endv
+  
+  # remove those that have T1D before landmark time
+  all_prediction_metadata_yearx = get_landmark_db(subject_metadata_ordered,begin_time)
+  
+  # get autoantibodies, family hist, and GRS2 at landmark time
+  young_enough = sample_metadata_ordered$age_at_collection <= begin_time
+  # get metadata below landmark time and for those that do not have T1D before landmark time
+  wont_get_t1D_before_landmark = sample_metadata_ordered$m138_maskid%in%rownames(all_prediction_metadata_yearx)
+  
+  metadata_temp = sample_metadata_ordered[young_enough & wont_get_t1D_before_landmark,]
+  # get abundance samples below landmark time
+  abundance_data_temp = microbiome_abundances_log_intersection[,metadata_temp$Run]
+
+  # get the average abundance of microbiome gene for each subject before landmark time
+  abundance_data_temp_subject = lapply(split(metadata_temp,metadata_temp$m138_maskid), function(df_temp) {
+    runs_temp = df_temp$Run
+    return(rowMeans(abundance_data_temp[,runs_temp,drop=FALSE]))
+  })
+  abundance_data_temp_subject_df = do.call("rbind",abundance_data_temp_subject)
+  
+  # now add microbiome data
+  abundance_data_temp_subject_df = abundance_data_temp_subject_df[match(rownames(all_prediction_metadata_yearx),rownames(abundance_data_temp_subject_df)),]
+  # any NAs are because we don't have samples at landmark time 
+  all_prediction_metadata_yearx_withMicrobiome = cbind(all_prediction_metadata_yearx,abundance_data_temp_subject_df)
+  # remove samples where I don't have microbiome data for it
+  all_prediction_metadata_yearx_withMicrobiome = all_prediction_metadata_yearx_withMicrobiome[!is.na(all_prediction_metadata_yearx_withMicrobiome[,6]),]
+  # what if instead of removing samples I say value is 0 
+  #all_prediction_metadata_yearx_withMicrobiome[is.na(all_prediction_metadata_yearx_withMicrobiome)] = 0
+  
+  variables_for_prediction = colnames(abundance_data_temp_subject_df)
+  
+  ## do stepwise selection to choose important microbiome genes. 61 genes is too many.
+  #my_formula1 <- as.formula(paste0("Surv(time,getsT1D)","~",paste(variables_for_prediction, collapse = " + ")))
+
+  #model <- coxph(formula=my_formula1,data = all_prediction_metadata_yearx_withMicrobiome,control = coxph.control(iter.max = 50))
+  
+  intercept_only <- coxph(Surv(time,getsT1D) ~1,data=all_prediction_metadata_yearx_withMicrobiome) 
+  all_model = coxph(Surv(time,getsT1D) ~.,data=all_prediction_metadata_yearx_withMicrobiome[,c("time","getsT1D",colnames(abundance_data_temp_subject_df))]) 
+  my_solution <- step(intercept_only, direction='forward', scope=formula(all_model),k=log(ncol(abundance_data_temp_subject_df)),steps=5000)
+
+  coefs = summary(my_solution)$coefficients
+  #coef_list[[x_count]] = coefs
+  
+  metadata_coef_pos = unlist(sapply(c("fdr","num_autoantibodies","grs2"), function(var) grep(var,rownames(coefs))))
+  
+  microbiome_coefs = rownames(coefs)
+
+  # now that I have my variables do predictions
+  
+  variables_for_prediction_with_microbiome = microbiome_coefs
+  
+  my_formula <- as.formula(paste0("Surv(time, getsT1D)","~",paste(variables_for_prediction_with_microbiome, collapse = " + ")))
+  # cross validation time
+  avg_auc_mat_nested_microbiome_only = matrix(NA,nrow=n_nested,ncol=length(day_end))
+  seAUC_m_n_nested_microbiome_only = matrix(NA,nrow=n_nested,ncol=length(day_end))
+  
+  #avg_cox_coefs_mat_nested = matrix(NA,nrow=n_nested,ncol=nrow(coefs))
+  #se_cox_coefs_mat_nested = matrix(NA,nrow=n_nested,ncol=nrow(coefs))
+  #colnames(avg_cox_coefs_mat_nested) = rownames(coefs)
+  #colnames(se_cox_coefs_mat_nested) = rownames(coefs)
+
+  for (j in 1:n_nested) {
+    # randomly shuffle data
+    dataset_ml <- all_prediction_metadata_yearx_withMicrobiome[sample(nrow(all_prediction_metadata_yearx_withMicrobiome)),]
+    #Create k equally size folds
+    k=3
+    folds <- cut(seq(1,nrow(dataset_ml)),breaks = k,labels = FALSE)
+    kfolds_mat = matrix(NA,nrow = k, ncol = length(day_end))
+    
+    #kfolds_coxCoef_mat = matrix(NA,nrow=k,ncol=nrow(coefs))
+    #colnames(kfolds_coxCoef_mat) = rownames(coefs)
+    
+    for (i in 1:k) {
+      testIndexes <- which(folds == i,arr.ind = TRUE)
+      testData <- dataset_ml[testIndexes, ]
+      trainData <- dataset_ml[-testIndexes, ]
+      res.cox <- coxph(my_formula, data = trainData)
+      #kfolds_coxCoef_mat[i,] = res.cox$coef[colnames(kfolds_coxCoef_mat)]
+      # extract linear predition in the log hazard function
+      marker_score <- predict(res.cox, testData, type = "risk")
+      delta <- testData[["getsT1D"]]
+      ROC.T <- timeROC(T = testData$time,
+                  delta = delta,marker = marker_score,
+                  cause = 1, weighting = "marginal",
+                  times = day_end,
+                  iid = FALSE) # set to false for now
+      kfolds_mat[i,] = ROC.T$AUC
+    }
+    # average the predictions for each part of the data
+    k_avg_AUC = colMeans(kfolds_mat,na.rm=TRUE)
+    # average cox regression coefs
+    #k_avg_cox_coefs = colMeans(kfolds_coxCoef_mat,na.rm=TRUE)
+    # I do this 10 times so add the results
+    avg_auc_mat_nested_microbiome_only[j,] = k_avg_AUC
+    #avg_cox_coefs_mat_nested[j,] = k_avg_cox_coefs
+    # standard deviation is the variation within the different parts of the data
+    seAUC_m_n_nested_microbiome_only[j,] = apply(kfolds_mat,2,function(x) var(x,na.rm=TRUE))
+    #se_cox_coefs_mat_nested[j,] = apply(kfolds_coxCoef_mat,2,function(x) var(x,na.rm=TRUE))
+  }
+  # take a final average of our repeats
+  final_avg_auc = colMeans(avg_auc_mat_nested_microbiome_only)
+  AUC_m_1_microbiome_only[x_count,] = final_avg_auc
+  seAUC_m_1_microbiome_only[x_count,] <- apply(seAUC_m_n_nested_microbiome_only,2,function(x) sqrt(mean(x,na.rm = TRUE)))
+  # add coefficients and sds to lists
+  #cox_coef_list[[x_count]] = colMeans(avg_cox_coefs_mat_nested)
+  #cox_sd_list[[x_count]] = apply(se_cox_coefs_mat_nested,2,function(x) sqrt(mean(x,na.rm = TRUE)))
+}
+# create confidence intervals with the standard errors
+confup_microbiome_only <- create_IC_se(AUC_m_1_microbiome_only,seAUC_m_1_microbiome_only,confidencev = 1.96, class = "up")
+conflow_microbiome_only <- create_IC_se(AUC_m_1_microbiome_only,seAUC_m_1_microbiome_only,confidencev = 1.96, class = "low")
+
+# calculate up and down confidence interval for cox regression coefficients
+
+#create_IC_cox_reg <- function(cox_reg_list,cox_reg_sd_list,confidencev=1.96){
+#  final_list = list()
+#  for(y in 1:length(cox_reg_list)) {
+#    cox_reg_vec = cox_reg_list[[y]]
+#    cox_reg_sd_vec = cox_reg_sd_list[[y]]
+#    mydf = matrix(0,nrow=length(cox_reg_vec),ncol=3)
+#    for(x in 1:length(cox_reg_vec)) {
+#      coef_temp = cox_reg_vec[x]
+#      sd_temp = cox_reg_sd_vec[x]
+#      confup = coef_temp + confidencev * sd_temp
+#      confdown = coef_temp - confidencev * sd_temp
+#      final_vec = c(coef=coef_temp,up=confup,down=confdown)
+#      mydf[x,] = final_vec
+#    }
+#    colnames(mydf) = c("coef","up","down")
+#    rownames(mydf) = names(cox_reg_sd_vec)
+#    mydf = as.data.frame(mydf)
+#    mydf = cbind(name=rownames(mydf),mydf)
+#    final_list[[y]] = mydf
+#  }
+#  return(final_list)
+#}
+  
+#cox_reg_coef_sd_tables = create_IC_cox_reg(cox_coef_list,cox_sd_list)
+
+```
+
+
+#Now start the predictions for the gene abundance plus microbiome
+
+```{r}
+day_beginv = c(92, 183, 365, 548, 730,912,1095)
+# times we will predict on. e.g. if landmark is 105 days, and day_end is 365.25 then we predict T1D status at 470.25 days
+day_endv <- c(365.25,365.25*3,5*365.25,8*365.25)
+
+# function that removes subjects who were censored or had T1D before landmark time
+get_landmark_db = function(mydf,day_begin_temp) {
+  bool_temp = which(mydf$time < day_begin_temp)
+  if(length(bool_temp) >0) {
+    newDF = mydf[-bool_temp,]
+    return(newDF)
+  } else {
+    return(mydf)
+  }
+}
+
+create_IC_se <- function(table,table_se,confidencev=1.96, class){
+  n1 <- dim(table)[1]
+  n2 <- dim(table)[2]
+  output <- matrix(NA, nrow = n1, ncol = n2)
+  for (i in 1:n1) {
+    for (j in 1:n2) {
+      if (class == "up") {
+        output[i,j] <- min(table[i,j] + confidencev * table_se[i,j],1)
+      }
+      else{
+        output[i,j] <- max(table[i,j] - confidencev * table_se[i,j],0)
+      }
+    }
+  }
+  rownames(output) <-  rownames(table)
+  colnames(output) <-  colnames(table)
+    return(output)
+}
+
+
+n_nested = 10
+
+AUC_m_1_with_microbiome <- matrix(NA, nrow = length(day_beginv), ncol = length(day_endv))
+seAUC_m_1_with_microbiome <- matrix(NA, nrow = length(day_beginv), ncol = length(day_endv))
+
+cox_coef_list = list()
+cox_sd_list = list()
+coef_list = list()
+set.seed(1986)
+
+for (x_count in 1:length(day_beginv)) {
+  begin_time = day_beginv[x_count]
+  day_end = begin_time + day_endv
+  
+  # remove those that have T1D before landmark time
+  all_prediction_metadata_yearx = get_landmark_db(subject_metadata_ordered,begin_time)
+  
+  # get autoantibodies, family hist, and GRS2 at landmark time
+  young_enough = sample_metadata_ordered$age_at_collection <= begin_time
+  # get metadata below landmark time and for those that do not have T1D before landmark time
+  wont_get_t1D_before_landmark = sample_metadata_ordered$m138_maskid%in%rownames(all_prediction_metadata_yearx)
+  
+  metadata_temp = sample_metadata_ordered[young_enough & wont_get_t1D_before_landmark,]
+  # get abundance samples below landmark time
+  abundance_data_temp = microbiome_abundances_log_intersection[,metadata_temp$Run]
+  # now get autoantibodies per subject
+  num_autoantibodies_per_subj = sapply(split(metadata_temp,metadata_temp$m138_maskid), function(df_temp) {
+    oldest_samp = unlist(df_temp[which.max(as.numeric(df_temp$age_at_collection)),])
+    oldest_age = as.numeric(oldest_samp["age_at_collection"])
+    had_MIAA <- oldest_age >= as.numeric(oldest_samp["age_first_MIAA"])
+    if(is.na(had_MIAA)) {
+      had_MIAA = FALSE
+    }
+    had_GAD <- oldest_age >= as.numeric(oldest_samp["age_first_GAD"])
+    if(is.na(had_GAD)) {
+      had_GAD = FALSE
+    }
+    had_IA2A <- oldest_age >= as.numeric(oldest_samp["age_first_IA2A"])
+    if(is.na(had_IA2A)) {
+      had_IA2A = FALSE
+    }
+    num_autoantibodies_had = sum(as.numeric(c(had_MIAA,had_GAD,had_IA2A)))
+    return(num_autoantibodies_had)
+  })
+  
+  # get the average abundance of microbiome gene for each subject before landmark time
+  abundance_data_temp_subject = lapply(split(metadata_temp,metadata_temp$m138_maskid), function(df_temp) {
+    runs_temp = df_temp$Run
+    return(rowMeans(abundance_data_temp[,runs_temp,drop=FALSE]))
+  })
+  abundance_data_temp_subject_df = do.call("rbind",abundance_data_temp_subject)
+  
+  # add antibody number to metadata
+  all_prediction_metadata_yearx$num_autoantibodies = num_autoantibodies_per_subj[match(rownames(all_prediction_metadata_yearx),names(num_autoantibodies_per_subj))]
+  # NA antibodies are 0
+  all_prediction_metadata_yearx$num_autoantibodies[is.na(all_prediction_metadata_yearx$num_autoantibodies)] = 0
+  # make fdr and autoantibodies factors
+  if(length(unique(all_prediction_metadata_yearx$fdr)) >1) {
+    all_prediction_metadata_yearx$fdr = as.factor(all_prediction_metadata_yearx$fdr)
+  }
+  if(length(unique(all_prediction_metadata_yearx$num_autoantibodies)) >1) {
+    all_prediction_metadata_yearx$num_autoantibodies = as.factor(all_prediction_metadata_yearx$num_autoantibodies)
+  }
+  
+  # now add microbiome data
+  abundance_data_temp_subject_df = abundance_data_temp_subject_df[match(rownames(all_prediction_metadata_yearx),rownames(abundance_data_temp_subject_df)),]
+  # any NAs are because we don't have samples at landmark time 
+  all_prediction_metadata_yearx_withMicrobiome = cbind(all_prediction_metadata_yearx,abundance_data_temp_subject_df)
+  # remove samples where I don't have microbiome data for it
+  all_prediction_metadata_yearx_withMicrobiome = all_prediction_metadata_yearx_withMicrobiome[!is.na(all_prediction_metadata_yearx_withMicrobiome[,6]),]
+  # what if instead of removing samples I say value is 0 
+  #all_prediction_metadata_yearx_withMicrobiome[is.na(all_prediction_metadata_yearx_withMicrobiome)] = 0
+  
+  variables_for_prediction = c("fdr","num_autoantibodies","grs2")
+  
+  ## do stepwise selection to choose important microbiome genes. 61 genes is too many.
+    variables_for_prediction_plus_microbiome = c(variables_for_prediction,colnames(abundance_data_temp_subject_df))
+  model <- coxph(Surv(time,getsT1D)~ fdr + num_autoantibodies + grs2 ,data = all_prediction_metadata_yearx_withMicrobiome,control = coxph.control(iter.max = 50))
+  
+  my_formula1 <- as.formula(paste0("~",paste(variables_for_prediction_plus_microbiome, collapse = " + ")))
+  
+  my_formula_2 <- as.formula(paste0("~",paste(variables_for_prediction, collapse = " + ")))
+
+  my_solution = step(model,scope = list(upper=my_formula1,lower=my_formula_2), direction = "forward", k = log(dim(all_prediction_metadata_yearx_withMicrobiome)[1]),steps = 5000)
+  coefs = summary(my_solution)$coefficients
+  coef_list[[x_count]] = coefs
+  
+  metadata_coef_pos = unlist(sapply(c("fdr","num_autoantibodies","grs2"), function(var) grep(var,rownames(coefs))))
+  
+  microbiome_coefs = coefs[-metadata_coef_pos,,drop=FALSE]
+  microbiome_coefs = rownames(microbiome_coefs)
+  
+  # now that I have my variables do predictions
+  
+  variables_for_prediction_with_microbiome = c(variables_for_prediction,microbiome_coefs)
+  
+  my_formula <- as.formula(paste0("Surv(time, getsT1D)","~",paste(variables_for_prediction_with_microbiome, collapse = " + ")))
+  # cross validation time
+  avg_auc_mat_nested_with_microbiome = matrix(NA,nrow=n_nested,ncol=length(day_end))
+  seAUC_m_n_nested_with_microbiome = matrix(NA,nrow=n_nested,ncol=length(day_end))
+  
+  avg_cox_coefs_mat_nested = matrix(NA,nrow=n_nested,ncol=nrow(coefs))
+  se_cox_coefs_mat_nested = matrix(NA,nrow=n_nested,ncol=nrow(coefs))
+  colnames(avg_cox_coefs_mat_nested) = rownames(coefs)
+  colnames(se_cox_coefs_mat_nested) = rownames(coefs)
+
+  for (j in 1:n_nested) {
+    # randomly shuffle data
+    dataset_ml <- all_prediction_metadata_yearx_withMicrobiome[sample(nrow(all_prediction_metadata_yearx_withMicrobiome)),]
+    #Create k equally size folds
+    k=3
+    folds <- cut(seq(1,nrow(dataset_ml)),breaks = k,labels = FALSE)
+    kfolds_mat = matrix(NA,nrow = k, ncol = length(day_end))
+    
+    kfolds_coxCoef_mat = matrix(NA,nrow=k,ncol=nrow(coefs))
+    colnames(kfolds_coxCoef_mat) = rownames(coefs)
+    
+    for (i in 1:k) {
+      testIndexes <- which(folds == i,arr.ind = TRUE)
+      testData <- dataset_ml[testIndexes, ]
+      trainData <- dataset_ml[-testIndexes, ]
+      res.cox <- coxph(my_formula, data = trainData)
+      kfolds_coxCoef_mat[i,] = res.cox$coef[colnames(kfolds_coxCoef_mat)]
+      # extract linear predition in the log hazard function
+      marker_score <- predict(res.cox, testData, type = "risk")
+      delta <- testData[["getsT1D"]]
+      ROC.T <- timeROC(T = testData$time,
+                  delta = delta,marker = marker_score,
+                  cause = 1, weighting = "marginal",
+                  times = day_end,
+                  iid = FALSE) # set to false for now
+      kfolds_mat[i,] = ROC.T$AUC
+    }
+    # average the predictions for each part of the data
+    k_avg_AUC = colMeans(kfolds_mat,na.rm=TRUE)
+    # average cox regression coefs
+    k_avg_cox_coefs = colMeans(kfolds_coxCoef_mat,na.rm=TRUE)
+    # I do this 10 times so add the results
+    avg_auc_mat_nested_with_microbiome[j,] = k_avg_AUC
+    avg_cox_coefs_mat_nested[j,] = k_avg_cox_coefs
+    # standard deviation is the variation within the different parts of the data
+    seAUC_m_n_nested_with_microbiome[j,] = apply(kfolds_mat,2,function(x) var(x,na.rm=TRUE))
+    se_cox_coefs_mat_nested[j,] = apply(kfolds_coxCoef_mat,2,function(x) var(x,na.rm=TRUE))
+  }
+  # take a final average of our repeats
+  final_avg_auc = colMeans(avg_auc_mat_nested_with_microbiome)
+  AUC_m_1_with_microbiome[x_count,] = final_avg_auc
+  seAUC_m_1_with_microbiome[x_count,] <- apply(seAUC_m_n_nested_with_microbiome,2,function(x) sqrt(mean(x,na.rm = TRUE)))
+  # add coefficients and sds to lists
+  cox_coef_list[[x_count]] = colMeans(avg_cox_coefs_mat_nested)
+  cox_sd_list[[x_count]] = apply(se_cox_coefs_mat_nested,2,function(x) sqrt(mean(x,na.rm = TRUE)))
+}
+# create confidence intervals with the standard errors
+confup_with_microbiome <- create_IC_se(AUC_m_1_with_microbiome,seAUC_m_1_with_microbiome,confidencev = 1.96, class = "up")
+conflow_with_microbiome <- create_IC_se(AUC_m_1_with_microbiome,seAUC_m_1_with_microbiome,confidencev = 1.96, class = "low")
+
+# calculate up and down confidence interval for cox regression coefficients
+
+create_IC_cox_reg <- function(cox_reg_list,cox_reg_sd_list,confidencev=1.96){
+  final_list = list()
+  for(y in 1:length(cox_reg_list)) {
+    cox_reg_vec = cox_reg_list[[y]]
+    cox_reg_sd_vec = cox_reg_sd_list[[y]]
+    mydf = matrix(0,nrow=length(cox_reg_vec),ncol=3)
+    for(x in 1:length(cox_reg_vec)) {
+      coef_temp = cox_reg_vec[x]
+      sd_temp = cox_reg_sd_vec[x]
+      confup = coef_temp + confidencev * sd_temp
+      confdown = coef_temp - confidencev * sd_temp
+      final_vec = c(coef=coef_temp,up=confup,down=confdown)
+      mydf[x,] = final_vec
+    }
+    colnames(mydf) = c("coef","up","down")
+    rownames(mydf) = names(cox_reg_sd_vec)
+    mydf = as.data.frame(mydf)
+    mydf = cbind(name=rownames(mydf),mydf)
+    final_list[[y]] = mydf
+  }
+  return(final_list)
+}
+  
+cox_reg_coef_sd_tables = create_IC_cox_reg(cox_coef_list,cox_sd_list)
+
+```
+
+#Predictions with just FDR,autoantibodies, and GRS2 score
+
+```{r}
+day_beginv = c(92, 183, 365, 548, 730,912,1095)
+# times we will predict on. e.g. if landmark is 105 days, and day_end is 365.25 then we predict T1D status at 470.25 days
+day_endv <- c(365.25,365.25*3,5*365.25,8*365.25)
+
+# function that removes subjects who were censored or had T1D before landmark time
+get_landmark_db = function(mydf,day_begin_temp) {
+  bool_temp = which(mydf$time < day_begin_temp)
+  if(length(bool_temp) >0) {
+    newDF = mydf[-bool_temp,]
+    return(newDF)
+  } else {
+    return(mydf)
+  }
+}
+
+create_IC_se <- function(table,table_se,confidencev=1.96, class){
+  n1 <- dim(table)[1]
+  n2 <- dim(table)[2]
+  output <- matrix(NA, nrow = n1, ncol = n2)
+  for (i in 1:n1) {
+    for (j in 1:n2) {
+      if (class == "up") {
+        output[i,j] <- min(table[i,j] + confidencev * table_se[i,j],1)
+      }
+      else{
+        output[i,j] <- max(table[i,j] - confidencev * table_se[i,j],0)
+      }
+    }
+  }
+  rownames(output) <-  rownames(table)
+  colnames(output) <-  colnames(table)
+    return(output)
+}
+
+
+n_nested = 10
+
+AUC_m_1 <- matrix(NA, nrow = length(day_beginv), ncol = length(day_endv))
+seAUC_m_1 <- matrix(NA, nrow = length(day_beginv), ncol = length(day_endv))
+set.seed(1986)
+
+for (x_count in 1:length(day_beginv)) {
+  begin_time = day_beginv[x_count]
+  day_end = begin_time + day_endv
+  
+  # remove those that have T1D before landmark time
+  all_prediction_metadata_yearx = get_landmark_db(subject_metadata_ordered,begin_time)
+  
+  # get autoantibodies, family hist, and GRS2 at landmark time
+  young_enough = sample_metadata_ordered$age_at_collection <= begin_time
+  # get metadata below landmark time and for those that do not have T1D before landmark time
+  wont_get_t1D_before_landmark = sample_metadata_ordered$m138_maskid%in%rownames(all_prediction_metadata_yearx)
+  
+  metadata_temp = sample_metadata_ordered[young_enough & wont_get_t1D_before_landmark,]
+
+  # now get autoantibodies per subject
+  num_autoantibodies_per_subj = sapply(split(metadata_temp,metadata_temp$m138_maskid), function(df_temp) {
+    oldest_samp = unlist(df_temp[which.max(as.numeric(df_temp$age_at_collection)),])
+    oldest_age = as.numeric(oldest_samp["age_at_collection"])
+    had_MIAA <- oldest_age >= as.numeric(oldest_samp["age_first_MIAA"])
+    if(is.na(had_MIAA)) {
+      had_MIAA = FALSE
+    }
+    had_GAD <- oldest_age >= as.numeric(oldest_samp["age_first_GAD"])
+    if(is.na(had_GAD)) {
+      had_GAD = FALSE
+    }
+    had_IA2A <- oldest_age >= as.numeric(oldest_samp["age_first_IA2A"])
+    if(is.na(had_IA2A)) {
+      had_IA2A = FALSE
+    }
+    num_autoantibodies_had = sum(as.numeric(c(had_MIAA,had_GAD,had_IA2A)))
+    return(num_autoantibodies_had)
+  })
+  
+  # add antibody number to metadata
+  all_prediction_metadata_yearx$num_autoantibodies = num_autoantibodies_per_subj[match(rownames(all_prediction_metadata_yearx),names(num_autoantibodies_per_subj))]
+  # NA antibodies are 0
+  all_prediction_metadata_yearx$num_autoantibodies[is.na(all_prediction_metadata_yearx$num_autoantibodies)] = 0
+  # make fdr and autoantibodies factors
+  if(length(unique(all_prediction_metadata_yearx$fdr)) >1) {
+    all_prediction_metadata_yearx$fdr = as.factor(all_prediction_metadata_yearx$fdr)
+  }
+  if(length(unique(all_prediction_metadata_yearx$num_autoantibodies)) >1) {
+    all_prediction_metadata_yearx$num_autoantibodies = as.factor(all_prediction_metadata_yearx$num_autoantibodies)
+  }
+  
+  variables_for_prediction = c("fdr","num_autoantibodies","grs2")
+  
+  my_formula <- as.formula(paste0("Surv(time, getsT1D)","~",paste(variables_for_prediction, collapse = " + ")))
+  # cross validation time
+  avg_auc_mat_nested = matrix(NA,nrow=n_nested,ncol=length(day_end))
+  seAUC_m_n_nested = matrix(NA,nrow=n_nested,ncol=length(day_end))
+  for (j in 1:n_nested) {
+    # randomly shuffle data
+    dataset_ml <- all_prediction_metadata_yearx[sample(nrow(all_prediction_metadata_yearx)),]
+    #Create k equally size folds
+    k=3
+    folds <- cut(seq(1,nrow(dataset_ml)),breaks = k,labels = FALSE)
+    kfolds_mat = matrix(NA,nrow = k, ncol = length(day_end))
+    for (i in 1:k) {
+      testIndexes <- which(folds == i,arr.ind = TRUE)
+      testData <- dataset_ml[testIndexes, ]
+      trainData <- dataset_ml[-testIndexes, ]
+      res.cox <- coxph(my_formula, data = trainData)
+      # extract linear predition in the log hazard function
+      marker_score <- predict(res.cox, testData, type = "risk")
+      delta <- testData[["getsT1D"]]
+      ROC.T <- timeROC(T = testData$time,
+                  delta = delta,marker = marker_score,
+                  cause = 1, weighting = "marginal",
+                  times = day_end,
+                  iid = FALSE) # set to false for now
+      kfolds_mat[i,] = ROC.T$AUC
+    }
+    # average the predictions for each part of the data
+    k_avg_AUC = colMeans(kfolds_mat,na.rm=TRUE)
+    # I do this 10 times so add the results
+    avg_auc_mat_nested[j,] = k_avg_AUC
+    # standard deviation is the variation within the different parts of the data
+    seAUC_m_n_nested[j,] = apply(kfolds_mat,2,function(x) var(x,na.rm=TRUE))
+  }
+  # take a final average of our repeats
+  final_avg_auc = colMeans(avg_auc_mat_nested)
+  AUC_m_1[x_count,] = final_avg_auc
+  seAUC_m_1[x_count,] <- apply(seAUC_m_n_nested,2,function(x) sqrt(mean(x,na.rm = TRUE)))
+}
+# create confidence intervals with the standard errors
+confup <- create_IC_se(AUC_m_1,seAUC_m_1,confidencev = 1.96, class = "up")
+conflow <- create_IC_se(AUC_m_1,seAUC_m_1,confidencev = 1.96, class = "low")
+
+```
+
+#Make AUC plot with microbiome data and standard metadata alone
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(cowplot)
+library(reshape2)
+
+prediction_at = c(0.25,0.6,1,1.5,2,2.5,3)
+prediction_for <- c(1,3,5,8)
+
+# set rownames and columnames to the landmark and horizon times
+rownames(AUC_m_1) <- prediction_at 
+colnames(AUC_m_1) <- prediction_for
+rownames(conflow) <- prediction_at 
+colnames(conflow) <- prediction_for
+rownames(confup) <- prediction_at 
+colnames(confup) <- prediction_for
+
+rownames(AUC_m_1_with_microbiome) <- prediction_at 
+colnames(AUC_m_1_with_microbiome) <- prediction_for
+rownames(conflow_with_microbiome) <- prediction_at 
+colnames(conflow_with_microbiome) <- prediction_for
+rownames(confup_with_microbiome) <- prediction_at 
+colnames(confup_with_microbiome) <- prediction_for
+
+# put data in wide ggplot format
+AUC_m_1_melt = melt(AUC_m_1)
+colnames(AUC_m_1_melt) = c("time_from","time_to","AUC")
+conflow_melt = melt(conflow)
+colnames(conflow_melt) = c("time_from","time_to","low")
+confup_melt = melt(confup)
+colnames(confup_melt) = c("time_from","time_to","up")
+
+AUC_m_1_with_microbiome_melt = melt(AUC_m_1_with_microbiome)
+colnames(AUC_m_1_with_microbiome_melt) = c("time_from","time_to","AUC")
+conflow_with_microbiome_melt = melt(conflow_with_microbiome)
+colnames(conflow_with_microbiome_melt) = c("time_from","time_to","low")
+confup_with_microbiome_melt = melt(confup_with_microbiome)
+colnames(confup_with_microbiome_melt) = c("time_from","time_to","up")
+
+# merge the data frames together
+AUC_m_1_with_microbiome_melt = merge(AUC_m_1_with_microbiome_melt,conflow_with_microbiome_melt,by=c("time_from","time_to"))
+AUC_m_1_with_microbiome_melt = merge(AUC_m_1_with_microbiome_melt,confup_with_microbiome_melt,by=c("time_from","time_to"))
+AUC_m_1_with_microbiome_melt$time_to = as.factor(AUC_m_1_with_microbiome_melt$time_to)
+
+AUC_m_1_with_microbiome_melt$predictors = "Microbiome+AA+FDR+GRS"
+
+AUC_m_1_melt = merge(AUC_m_1_melt,conflow_melt,by=c("time_from","time_to"))
+AUC_m_1_melt = merge(AUC_m_1_melt,confup_melt,by=c("time_from","time_to"))
+AUC_m_1_melt$time_to = as.factor(AUC_m_1_melt$time_to)
+
+# now bind the microbiome plus other data and the other data alone together
+
+AUC_m_1_melt$predictors = "AA+FDR+GRS"
+AUC_m_1_melt$predictors = as.factor(AUC_m_1_melt$predictors)
+AUC_m_1_melt_all = rbind(AUC_m_1_melt,AUC_m_1_with_microbiome_melt)
+AUC_m_1_melt_all$predictors = as.factor(AUC_m_1_melt_all$predictors)
+
+pdf("~/Dropbox (HMS)/Kostic_Lab/datasets/TEDDY/metagenome_genotype_analysis/AUC_comparison_plot.pdf",width=10)
+ggplot(AUC_m_1_melt_all, aes(x=time_from,y=AUC)) + geom_point(aes(colour = time_to, shape = time_to),size = 5) + geom_line(aes(colour = time_to,linetype=predictors),size = 0.5) + geom_ribbon(data = AUC_m_1_with_microbiome_melt,aes(ymin = low,ymax = up,fill = time_to),alpha = 0.1,show.legend = FALSE, colour = "transparent") + theme_bw() + scale_y_continuous(breaks = seq(0,1,0.1),limits = c(0,1)) + labs(x="",y="") + theme(legend.title=element_text(size=20),legend.text = element_text(size=20))
+dev.off()
+
+
+### now lets make a rainforest plot to show how the microbiome importance compares to other factors
+
+#library(metaviz)
+
+#names(coef_list) = prediction_at
+
+#pdf("~/Dropbox (HMS)/Kostic_Lab/datasets/TEDDY/metagenome_genotype_analysis/forestPlots.pdf")
+#for(x in 1:length(coef_list[-1])) {
+#  coefs_temp = coef_list[-1][[x]]
+#  coefs_temp = coefs_temp[,c(1,3)]
+#  coefs_temp = coefs_temp[order(abs(coefs_temp[,1]),decreasing=TRUE),]
+#  myplot = viz_forest(x=coefs_temp,study_labels=rownames(coefs_temp),xlab="log risk ratio") + ggtitle(paste(names(coef_list[-1][x]),"year"))
+#  print(myplot)
+#}
+#dev.off()
+
+names(cox_reg_coef_sd_tables) = prediction_at
+
+for(x in 1:length(cox_reg_coef_sd_tables)) {
+  coefs_temp = cox_reg_coef_sd_tables[[x]]
+  myplot = ggplot(coefs_temp, aes(x = reorder(name,abs(coef)), y = coef)) + geom_point(size = 2) + geom_errorbar(aes(ymin = down, ymax = up)) + coord_flip() + ggtitle(paste(names(cox_reg_coef_sd_tables[x]),"year")) + geom_hline(aes(yintercept = 0,color="red")) + ylab("mean log risk ratio") + xlab("feature")
+  jpeg(paste("~/Dropbox (HMS)/Kostic_Lab/datasets/TEDDY/metagenome_genotype_analysis/forest_plots/",names(cox_reg_coef_sd_tables[x])," year",sep=""))
+  print(myplot)
+  dev.off()
+}
+```
+
+#Get difference between the 2
+
+
+```{r}
+day_beginv = c(92, 183, 365, 548, 730,912,1095)
+# times we will predict on. e.g. if landmark is 105 days, and day_end is 365.25 then we predict T1D status at 470.25 days
+day_endv <- c(365.25,365.25*3,5*365.25,8*365.25)
+
+# function that removes subjects who were censored or had T1D before landmark time
+get_landmark_db = function(mydf,day_begin_temp) {
+  bool_temp = which(mydf$time < day_begin_temp)
+  if(length(bool_temp) >0) {
+    newDF = mydf[-bool_temp,]
+    return(newDF)
+  } else {
+    return(mydf)
+  }
+}
+
+create_IC_se_diff <- function(table,table_se,confidencev=1.96, class){
+  n1 <- dim(table)[1]
+  n2 <- dim(table)[2]
+  output <- matrix(NA, nrow = n1, ncol = n2)
+  for (i in 1:n1) {
+    for (j in 1:n2) {
+      if (class == "up") {
+        output[i,j] <- table[i,j] + confidencev * table_se[i,j]
+      }
+      else{
+        output[i,j] <- table[i,j] - confidencev * table_se[i,j]
+      }
+    }
+  }
+  rownames(output) <-  rownames(table)
+  colnames(output) <-  colnames(table)
+    return(output)
+}
+
+
+n_nested = 10
+
+AUC_diff <- matrix(NA, nrow = length(day_beginv), ncol = length(day_endv))
+seAUC_diff <- matrix(NA, nrow = length(day_beginv), ncol = length(day_endv))
+
+set.seed(1986)
+
+for (x_count in 1:length(day_beginv)) {
+  begin_time = day_beginv[x_count]
+  day_end = begin_time + day_endv
+  
+  # remove those that have T1D before landmark time
+  all_prediction_metadata_yearx = get_landmark_db(subject_metadata_ordered,begin_time)
+  
+  # get autoantibodies, family hist, and GRS2 at landmark time
+  young_enough = sample_metadata_ordered$age_at_collection <= begin_time
+  # get metadata below landmark time and for those that do not have T1D before landmark time
+  wont_get_t1D_before_landmark = sample_metadata_ordered$m138_maskid%in%rownames(all_prediction_metadata_yearx)
+  
+  metadata_temp = sample_metadata_ordered[young_enough & wont_get_t1D_before_landmark,]
+  # get abundance samples below landmark time
+  abundance_data_temp = microbiome_abundances_log_intersection[,metadata_temp$Run]
+  # now get autoantibodies per subject
+  num_autoantibodies_per_subj = sapply(split(metadata_temp,metadata_temp$m138_maskid), function(df_temp) {
+    oldest_samp = unlist(df_temp[which.max(as.numeric(df_temp$age_at_collection)),])
+    oldest_age = as.numeric(oldest_samp["age_at_collection"])
+    had_MIAA <- oldest_age >= as.numeric(oldest_samp["age_first_MIAA"])
+    if(is.na(had_MIAA)) {
+      had_MIAA = FALSE
+    }
+    had_GAD <- oldest_age >= as.numeric(oldest_samp["age_first_GAD"])
+    if(is.na(had_GAD)) {
+      had_GAD = FALSE
+    }
+    had_IA2A <- oldest_age >= as.numeric(oldest_samp["age_first_IA2A"])
+    if(is.na(had_IA2A)) {
+      had_IA2A = FALSE
+    }
+    num_autoantibodies_had = sum(as.numeric(c(had_MIAA,had_GAD,had_IA2A)))
+    return(num_autoantibodies_had)
+  })
+  
+  # get the average abundance of microbiome gene for each subject before landmark time
+  abundance_data_temp_subject = lapply(split(metadata_temp,metadata_temp$m138_maskid), function(df_temp) {
+    runs_temp = df_temp$Run
+    return(rowMeans(abundance_data_temp[,runs_temp,drop=FALSE]))
+  })
+  abundance_data_temp_subject_df = do.call("rbind",abundance_data_temp_subject)
+  
+  # add antibody number to metadata
+  all_prediction_metadata_yearx$num_autoantibodies = num_autoantibodies_per_subj[match(rownames(all_prediction_metadata_yearx),names(num_autoantibodies_per_subj))]
+  # NA antibodies are 0
+  all_prediction_metadata_yearx$num_autoantibodies[is.na(all_prediction_metadata_yearx$num_autoantibodies)] = 0
+  # make fdr and autoantibodies factors
+  if(length(unique(all_prediction_metadata_yearx$fdr)) >1) {
+    all_prediction_metadata_yearx$fdr = as.factor(all_prediction_metadata_yearx$fdr)
+  }
+  if(length(unique(all_prediction_metadata_yearx$num_autoantibodies)) >1) {
+    all_prediction_metadata_yearx$num_autoantibodies = as.factor(all_prediction_metadata_yearx$num_autoantibodies)
+  }
+  
+  # now add microbiome data
+  abundance_data_temp_subject_df = abundance_data_temp_subject_df[match(rownames(all_prediction_metadata_yearx),rownames(abundance_data_temp_subject_df)),]
+  # any NAs are because we don't have samples at landmark time 
+  all_prediction_metadata_yearx_withMicrobiome = cbind(all_prediction_metadata_yearx,abundance_data_temp_subject_df)
+  # remove samples where I don't have microbiome data for it
+  all_prediction_metadata_yearx_withMicrobiome = all_prediction_metadata_yearx_withMicrobiome[!is.na(all_prediction_metadata_yearx_withMicrobiome[,6]),]
+  # what if instead of removing samples I say value is 0 
+  #all_prediction_metadata_yearx_withMicrobiome[is.na(all_prediction_metadata_yearx_withMicrobiome)] = 0
+  
+  variables_for_prediction = c("fdr","num_autoantibodies","grs2")
+  
+  ## do stepwise selection to choose important microbiome genes. 61 genes is too many.
+    variables_for_prediction_plus_microbiome = c(variables_for_prediction,colnames(abundance_data_temp_subject_df))
+  model <- coxph(Surv(time,getsT1D)~ fdr + num_autoantibodies + grs2 ,data = all_prediction_metadata_yearx_withMicrobiome,control = coxph.control(iter.max = 50))
+  
+  my_formula1 <- as.formula(paste0("~",paste(variables_for_prediction_plus_microbiome, collapse = " + ")))
+  
+  my_formula_2 <- as.formula(paste0("~",paste(variables_for_prediction, collapse = " + ")))
+
+  my_solution = step(model,scope = list(upper=my_formula1,lower=my_formula_2), direction = "forward", k = log(dim(all_prediction_metadata_yearx_withMicrobiome)[1]),steps = 5000)
+  coefs = summary(my_solution)$coefficients
+  #coef_list[[x_count]] = coefs
+  
+  metadata_coef_pos = unlist(sapply(c("fdr","num_autoantibodies","grs2"), function(var) grep(var,rownames(coefs))))
+  
+  microbiome_coefs = coefs[-metadata_coef_pos,,drop=FALSE]
+  microbiome_coefs = rownames(microbiome_coefs)
+  
+  # now that I have my variables do predictions
+  
+  variables_for_prediction_with_microbiome = c(variables_for_prediction,microbiome_coefs)
+  
+  my_formula <- as.formula(paste0("Surv(time, getsT1D)","~",paste(variables_for_prediction_with_microbiome, collapse = " + ")))
+  my_formula_no_microbiome <- as.formula(paste0("Surv(time, getsT1D)","~",paste(variables_for_prediction, collapse = " + ")))
+
+  # cross validation time
+  avg_auc_diff_mat_nested_with_microbiome = matrix(NA,nrow=n_nested,ncol=length(day_end))
+  seAUC_m_n_dff_nested_with_microbiome = matrix(NA,nrow=n_nested,ncol=length(day_end))
+  
+  #avg_cox_coefs_mat_nested = matrix(NA,nrow=n_nested,ncol=nrow(coefs))
+  #se_cox_coefs_mat_nested = matrix(NA,nrow=n_nested,ncol=nrow(coefs))
+  #colnames(avg_cox_coefs_mat_nested) = rownames(coefs)
+  #colnames(se_cox_coefs_mat_nested) = rownames(coefs)
+
+  for (j in 1:n_nested) {
+    # randomly shuffle data
+    dataset_ml <- all_prediction_metadata_yearx_withMicrobiome[sample(nrow(all_prediction_metadata_yearx_withMicrobiome)),]
+    #Create k equally size folds
+    k=3
+    folds <- cut(seq(1,nrow(dataset_ml)),breaks = k,labels = FALSE)
+    kfolds_mat_dff = matrix(NA,nrow = k, ncol = length(day_end))
+    
+    #kfolds_coxCoef_mat = matrix(NA,nrow=k,ncol=nrow(coefs))
+    #colnames(kfolds_coxCoef_mat) = rownames(coefs)
+    
+    for (i in 1:k) {
+      testIndexes <- which(folds == i,arr.ind = TRUE)
+      testData <- dataset_ml[testIndexes, ]
+      trainData <- dataset_ml[-testIndexes, ]
+      res.cox <- coxph(my_formula, data = trainData)
+      res.cox_nomicrobiome <- coxph(my_formula_no_microbiome, data = trainData)
+      #kfolds_coxCoef_mat[i,] = res.cox$coef[colnames(kfolds_coxCoef_mat)]
+      # extract linear predition in the log hazard function
+      marker_score <- predict(res.cox, testData, type = "risk")
+      marker_score_nomicrobiome <- predict(res.cox_nomicrobiome, testData, type = "risk")
+      delta <- testData[["getsT1D"]]
+      ROC.T <- timeROC(T = testData$time,
+                  delta = delta,marker = marker_score,
+                  cause = 1, weighting = "marginal",
+                  times = day_end,
+                  iid = FALSE) # set to false for now
+      ROC.T_nomicrobiome <- timeROC(T = testData$time,
+                  delta = delta,marker = marker_score_nomicrobiome,
+                  cause = 1, weighting = "marginal",
+                  times = day_end,
+                  iid = FALSE) # set to false for now
+
+      kfolds_mat_dff[i,] = ROC.T$AUC - ROC.T_nomicrobiome$AUC
+    }
+    # average the predictions for each part of the data
+    k_avg_AUC = colMeans(kfolds_mat_dff,na.rm=TRUE)
+    # average cox regression coefs
+    #k_avg_cox_coefs = colMeans(kfolds_coxCoef_mat,na.rm=TRUE)
+    # I do this 10 times so add the results
+    avg_auc_diff_mat_nested_with_microbiome[j,] = k_avg_AUC
+    #avg_cox_coefs_mat_nested[j,] = k_avg_cox_coefs
+    # standard deviation is the variation within the different parts of the data
+    seAUC_m_n_dff_nested_with_microbiome[j,] = apply(kfolds_mat_dff,2,function(x) var(x,na.rm=TRUE))
+    #se_cox_coefs_mat_nested[j,] = apply(kfolds_coxCoef_mat,2,function(x) var(x,na.rm=TRUE))
+  }
+  # take a final average of our repeats
+  final_avg_auc_dff = colMeans(avg_auc_diff_mat_nested_with_microbiome)
+  AUC_diff[x_count,] = final_avg_auc_dff
+  seAUC_diff[x_count,] <- apply(seAUC_m_n_dff_nested_with_microbiome,2,function(x) sqrt(mean(x,na.rm = TRUE)))
+  # add coefficients and sds to lists
+  #cox_coef_list[[x_count]] = colMeans(avg_cox_coefs_mat_nested)
+  #cox_sd_list[[x_count]] = apply(se_cox_coefs_mat_nested,2,function(x) sqrt(mean(x,na.rm = TRUE)))
+}
+# create confidence intervals with the standard errors
+confup_diff <- create_IC_se_diff(AUC_diff,seAUC_diff,confidencev = 1.96, class = "up")
+conflow_diff <- create_IC_se_diff(AUC_diff,seAUC_diff,confidencev = 1.96, class = "low")
+
+# calculate up and down confidence interval for cox regression coefficients
+
+#create_IC_cox_reg <- function(cox_reg_list,cox_reg_sd_list,confidencev=1.96){
+#  final_list = list()
+#  for(y in 1:length(cox_reg_list)) {
+#    cox_reg_vec = cox_reg_list[[y]]
+#    cox_reg_sd_vec = cox_reg_sd_list[[y]]
+#    mydf = matrix(0,nrow=length(cox_reg_vec),ncol=3)
+#    for(x in 1:length(cox_reg_vec)) {
+#      coef_temp = cox_reg_vec[x]
+#      sd_temp = cox_reg_sd_vec[x]
+#      confup = coef_temp + confidencev * sd_temp
+#      confdown = coef_temp - confidencev * sd_temp
+#      final_vec = c(coef=coef_temp,up=confup,down=confdown)
+#      mydf[x,] = final_vec
+#    }
+#    colnames(mydf) = c("coef","up","down")
+#    rownames(mydf) = names(cox_reg_sd_vec)
+#    mydf = as.data.frame(mydf)
+#    mydf = cbind(name=rownames(mydf),mydf)
+#    final_list[[y]] = mydf
+#  }
+#  return(final_list)
+#}
+  
+#cox_reg_coef_sd_tables = create_IC_cox_reg(cox_coef_list,cox_sd_list)
+
+```
+
+```{r}
+# make plot
+library(dplyr)
+library(tidyr)
+library(cowplot)
+library(reshape2)
+
+prediction_at = c(0.25,0.6,1,1.5,2,2.5,3)
+prediction_for <- c(1,3,5,8)
+
+# set rownames and columnames to the landmark and horizon times
+rownames(AUC_diff) <- prediction_at 
+colnames(AUC_diff) <- prediction_for
+rownames(conflow_diff) <- prediction_at 
+colnames(conflow_diff) <- prediction_for
+rownames(confup_diff) <- prediction_at 
+colnames(confup_diff) <- prediction_for
+
+# put data in wide ggplot format
+AUC_diff_melt = melt(AUC_diff)
+colnames(AUC_diff_melt) = c("time_from","time_to","AUC_diff")
+conflow_diff_melt = melt(conflow_diff)
+colnames(conflow_diff_melt) = c("time_from","time_to","low")
+confup_diff_melt = melt(confup_diff)
+colnames(confup_diff_melt) = c("time_from","time_to","up")
+
+# merge the data frames together
+AUC_diff_melt = merge(AUC_diff_melt,conflow_diff_melt,by=c("time_from","time_to"))
+AUC_diff_melt = merge(AUC_diff_melt,confup_diff_melt,by=c("time_from","time_to"))
+AUC_diff_melt$time_to = as.factor(AUC_diff_melt$time_to)
+
+
+# now bind the microbiome plus other data and the other data alone together
+
+pdf("~/Dropbox (HMS)/Kostic_Lab/datasets/TEDDY/metagenome_genotype_analysis/AUC_diff_comparison_plot.pdf",width=10)
+ggplot(AUC_diff_melt, aes(x=time_from,y=AUC_diff)) + geom_point(aes(colour = time_to, shape = time_to),size = 5) + geom_line(aes(colour = time_to),size = 0.5) + geom_ribbon(data = AUC_diff_melt,aes(ymin = low,ymax = up,fill = time_to),alpha = 0.1,show.legend = FALSE, colour = "transparent") + theme_bw()
+dev.off()
+
+```
+
+
+
+#Make AUC plot with microbiome only data
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(cowplot)
+library(reshape2)
+
+prediction_at = c(0.25,0.6,1,1.5,2,2.5,3)
+prediction_for <- c(1,3,5,8)
+
+# set rownames and columnames to the landmark and horizon times
+rownames(AUC_m_1_microbiome_only) <- prediction_at 
+colnames(AUC_m_1_microbiome_only) <- prediction_for
+rownames(conflow_microbiome_only) <- prediction_at 
+colnames(conflow_microbiome_only) <- prediction_for
+rownames(confup_microbiome_only) <- prediction_at 
+colnames(confup_microbiome_only) <- prediction_for
+
+
+# put data in wide ggplot format
+AUC_m_1_microbiome_only_melt = melt(AUC_m_1_microbiome_only)
+colnames(AUC_m_1_microbiome_only_melt) = c("time_from","time_to","AUC")
+conflow_microbiome_only_melt = melt(conflow_microbiome_only)
+colnames(conflow_microbiome_only_melt) = c("time_from","time_to","low")
+confup_microbiome_only_melt = melt(confup_microbiome_only)
+colnames(confup_microbiome_only_melt) = c("time_from","time_to","up")
+
+# merge the data frames together
+AUC_m_1_microbiome_only_melt = merge(AUC_m_1_microbiome_only_melt,conflow_microbiome_only_melt,by=c("time_from","time_to"))
+AUC_m_1_microbiome_only_melt = merge(AUC_m_1_microbiome_only_melt,confup_microbiome_only_melt,by=c("time_from","time_to"))
+AUC_m_1_microbiome_only_melt$time_to = as.factor(AUC_m_1_microbiome_only_melt$time_to)
+
+pdf("AUC_microbiome_only_predictions.pdf")
+ggplot(AUC_m_1_microbiome_only_melt, aes(x=time_from,y=AUC)) + geom_point(aes(colour = time_to, shape = time_to),size = 5) + geom_line(aes(colour = time_to),size = 0.5) + geom_ribbon(data = AUC_m_1_microbiome_only_melt,aes(ymin = low,ymax = up,fill = time_to),alpha = 0.1,show.legend = FALSE, colour = "transparent") + theme_bw() + scale_y_continuous(breaks = seq(0.1,1,0.1),limits = c(0.1,1)) + labs(x="",y="") + theme(legend.title=element_text(size=20),legend.text = element_text(size=20))
+dev.off()
+```
+
+#Also compare microbiome only vs latest
+
+```{r}
+AUC_m_1_microbiome_only_melt$predictors = "microbiome"
+AUC_m_1_melt_microbiome_only_nature_only = rbind(AUC_m_1_melt,AUC_m_1_microbiome_only_melt)
+AUC_m_1_melt_microbiome_only_nature_only$predictors = as.factor(AUC_m_1_melt_microbiome_only_nature_only$predictors)
+
+pdf("~/Dropbox (HMS)/Kostic_Lab/datasets/TEDDY/metagenome_genotype_analysis/AUC_comparison_plot_microbiome_vs_nature.pdf",width=10)
+ggplot(AUC_m_1_melt_microbiome_only_nature_only, aes(x=time_from,y=AUC)) + geom_point(aes(colour = time_to, shape = time_to),size = 5) + geom_line(aes(colour = time_to,linetype=predictors),size = 0.5) + geom_ribbon(data = AUC_m_1_with_microbiome_melt,aes(ymin = low,ymax = up,fill = time_to),alpha = 0.1,show.legend = FALSE, colour = "transparent") + theme_bw() + scale_y_continuous(breaks = seq(0,1,0.1),limits = c(0,1)) + labs(x="",y="") + theme(legend.title=element_text(size=20),legend.text = element_text(size=20)) + coord_cartesian(ylim=c(0.5, 1))
+dev.off()
+
+```
+

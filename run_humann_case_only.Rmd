@@ -1,0 +1,2878 @@
+---
+title: "run_human_on_TEDDY_case_only"
+author: "Sam Zimmerman"
+date: "2023-08-13"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+setwd("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4")
+
+abundance_files = paste("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/humann_analysis",c("TEDDY_pathabundance-cpm.tsv","TEDDY_species_abundances.tsv"),sep="/")
+mapping_files = list.files(pattern = ".mapping.csv")
+mapping_files = mapping_files[grep("_before_vs_far_from_condition_subject_level",mapping_files)]
+mapping_files = mapping_files[grep("all_HLA",mapping_files)]
+
+training_metadata_files_two_thirds_train = gsub(".mapping.csv","_proportion_train_0.66_train_metadata.csv",mapping_files)
+training_metadata_files_fifty_train = gsub(".mapping.csv","_proportion_train_0.5_train_metadata.csv",mapping_files)
+testing_metadata_files_two_third_train = gsub(".mapping.csv","_proportion_train_0.66_test_metadata.csv",mapping_files)
+testing_metadata_files_fifty_train = gsub(".mapping.csv","_proportion_train_0.5_test_metadata.csv",mapping_files)
+
+training_data_files_two_thirds_train = gsub(".mapping.csv","_proportion_train_0.66.train_subjects.txt",mapping_files)
+training_data_files_fifty_train = gsub(".mapping.csv","_proportion_train_0.5.train_subjects.txt",mapping_files)
+testing_data_files_two_third_train = gsub(".mapping.csv","_proportion_train_0.66.test_subjects.txt",mapping_files)
+testing_data_files_fifty_train = gsub(".mapping.csv","_proportion_train_0.5.test_subjects.txt",mapping_files)
+
+mapping_metadata_two_third_train = data.frame(training_metadata_files_two_thirds_train,testing_metadata_files_two_third_train,mapping_files,training_data_files_two_thirds_train,testing_data_files_two_third_train)
+
+mapping_metadata_fifty_fity_train = data.frame(training_metadata_files_fifty_train,testing_metadata_files_fifty_train,mapping_files,training_data_files_fifty_train,testing_data_files_fifty_train)
+
+mapping_metadata_species_level_two_third = cbind(abundance_files=rep(abundance_files[2],nrow(mapping_metadata_two_third_train)),mapping_metadata_two_third_train)
+
+mapping_metadata_species_level_two_third$type = "species"
+mapping_metadata_species_level_two_third$train_prop = "0.66"
+
+mapping_metadata_species_level_fifty_fity = cbind(abundance_files=rep(abundance_files[2],nrow(mapping_metadata_fifty_fity_train)),mapping_metadata_fifty_fity_train)
+mapping_metadata_species_level_fifty_fity$type = "species"
+mapping_metadata_species_level_fifty_fity$train_prop = "0.5"
+
+mapping_metadata_pathway_level_two_third = cbind(abundance_files=rep(abundance_files[1],nrow(mapping_metadata_two_third_train)),mapping_metadata_two_third_train)
+mapping_metadata_pathway_level_two_third$type = "pathway"
+mapping_metadata_pathway_level_two_third$train_prop = "0.66"
+
+mapping_metadata_pathway_level_fifty_fity = cbind(abundance_files=rep(abundance_files[1],nrow(mapping_metadata_fifty_fity_train)),mapping_metadata_fifty_fity_train)
+mapping_metadata_pathway_level_fifty_fity$type = "pathway"
+mapping_metadata_pathway_level_fifty_fity$train_prop = "0.5"
+
+write.table(mapping_metadata_species_level_two_third,file="species_level_metadata_two_thirds_before_vs_far_from_condition_subject_level.tsv",sep="\t",col.names=FALSE,row.names=FALSE,quote=FALSE)
+write.table(mapping_metadata_species_level_fifty_fity,file="species_level_metadata_fifity_fifty_before_vs_far_from_condition_subject_level.tsv",sep="\t",col.names=FALSE,row.names=FALSE,quote=FALSE)
+
+write.table(mapping_metadata_pathway_level_two_third,file="pathway_level_metadata_two_thirds_before_vs_far_from_condition_subject_level.tsv",sep="\t",col.names=FALSE,row.names=FALSE,quote=FALSE)
+write.table(mapping_metadata_pathway_level_fifty_fity,file="pathway_level_metadata_fifty_fifty_before_vs_far_from_condition_subject_level.tsv",sep="\t",col.names=FALSE,row.names=FALSE,quote=FALSE)
+
+```
+
+#Now average subjects together, filter and normalize
+
+```{bash}
+
+cd /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4
+
+sbatch -c 1 -t 0-01:00 -p short --mem=10G prep_abundance_for_voe_bulk_training_data_v2.bash species_level_metadata_two_thirds_before_vs_far_from_condition_subject_level.tsv
+sbatch -c 1 -t 0-00:30 -p short --mem=5G prep_abundance_for_voe_bulk_training_data_v2.bash species_level_metadata_fifity_fifty_before_vs_far_from_condition_subject_level.tsv
+
+sbatch -c 1 -t 0-01:00 -p short --mem=20G prep_abundance_for_voe_bulk_training_data_v2.bash pathway_level_metadata_two_thirds_before_vs_far_from_condition_subject_level.tsv
+sbatch -c 1 -t 0-01:00 -p short --mem=20G prep_abundance_for_voe_bulk_training_data_v2.bash pathway_level_metadata_fifty_fifty_before_vs_far_from_condition_subject_level.tsv
+
+cd /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis
+
+ls /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/*_before_vs_far_from_condition_subject_level-all_HLA_*/*_test_TEDDY_pathabundance-cpm.tsv | while read line; do dirname $line; done > input_folder_list_before_vs_far_from_condition_subject_level.txt
+
+sbatch -n 1 -c 1 --mem=60G -p short -t 0-02:00 scripts/filter_normalize_abundance_metadata_data_v3_pathways.bash input_folder_list_before_vs_far_from_condition_subject_level.txt 0.9 1
+
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-02:00 scripts/filter_normalize_abundance_metadata_data_v3_species.bash input_folder_list_before_vs_far_from_condition_subject_level.txt 0.3 1
+
+sbatch -n 1 -c 1 --mem=10G -p short -t 0-01:00 scripts/filter_normalize_abundance_metadata_data_v3_pathways_cutoff_labeled.bash input_folder_list_before_vs_far_from_condition_subject_level.txt 0.3 1
+
+```
+
+#Create input for ttest
+
+```{r}
+all_dirs = read.table("input_folder_list_before_vs_far_from_condition_subject_level.txt",header=FALSE)[,1]
+
+get_input_files = function(abundance_file_type) { # abundance_file_type is species or pathway
+  if(abundance_file_type == "pathway") {
+    transformed_abundance_file_list = lapply(all_dirs, function(x) {
+      files_temp = list.files(x,pattern="_pathabundance-cpm_filtered_transformed_abundance",full.names = TRUE)
+      files_temp = files_temp[!grepl("_names.csv",files_temp)]
+    }) 
+  } else if(abundance_file_type == "species") {
+    transformed_abundance_file_list = lapply(all_dirs, function(x) {
+      files_temp = list.files(x,pattern="_species_abundances_filtered_transformed_abundance_",full.names = TRUE)
+      files_temp = files_temp[!grepl("_names.csv",files_temp)]
+    }) 
+  }
+  names(transformed_abundance_file_list) = all_dirs
+  transformed_abundance_file_list = transformed_abundance_file_list[sapply(transformed_abundance_file_list, length)==2]
+  test_abundance_data = sapply(transformed_abundance_file_list, function(x) x[grep("transformed_abundance_test.csv",x)])
+  train_abundance_data = sapply(transformed_abundance_file_list, function(x) x[grep("transformed_abundance_train.csv",x)])
+  input_info = data.frame(test_abundance_data,train_abundance_data)
+
+  metadata_train = paste(rownames(input_info),"_train_metadata.csv",sep="")
+  metadata_test = paste(rownames(input_info),"_test_metadata.csv",sep="")
+
+  train_fold1 = paste(rownames(input_info),".train_subjects_1.txt",sep="")
+  train_fold2 = paste(rownames(input_info),".train_subjects_2.txt",sep="")
+  train_fold3 = paste(rownames(input_info),".train_subjects_3.txt",sep="")
+  test_subjects = paste(rownames(input_info),".test_subjects.txt",sep="")
+  input_info$metadata_train = metadata_train
+  input_info$metadata_test = metadata_test
+  input_info$train_fold1 = train_fold1
+  input_info$train_fold2 = train_fold2
+  input_info$train_fold3 = train_fold3
+  input_info$test_subjects = test_subjects
+  write.csv(input_info,file=paste("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_level",abundance_file_type,".csv",sep=""),row.names = FALSE,quote=FALSE)
+  return(input_info)
+}
+
+species_info = get_input_files(abundance_file_type="species")
+pathway_info = get_input_files(abundance_file_type="pathway")
+
+get_input_files_with_cutoff = function(abundance_file_type,cutoff) { # abundance_file_type is species or pathway
+  if(abundance_file_type == "pathway") {
+    transformed_abundance_file_list = lapply(all_dirs, function(x) {
+      files_temp = list.files(x,pattern=paste("_pathabundance-cpm",cutoff,"_filtered_transformed_abundance",sep=""),full.names = TRUE)
+      files_temp = files_temp[!grepl("_names.csv",files_temp)]
+    }) 
+  } else if(abundance_file_type == "species") {
+    transformed_abundance_file_list = lapply(all_dirs, function(x) {
+      files_temp = list.files(x,pattern="_species_abundances_filtered_transformed_abundance_",full.names = TRUE)
+      files_temp = files_temp[!grepl("_names.csv",files_temp)]
+    }) 
+  }
+  names(transformed_abundance_file_list) = all_dirs
+  transformed_abundance_file_list = transformed_abundance_file_list[sapply(transformed_abundance_file_list, length)==2]
+  test_abundance_data = sapply(transformed_abundance_file_list, function(x) x[grep("transformed_abundance_test.csv",x)])
+  train_abundance_data = sapply(transformed_abundance_file_list, function(x) x[grep("transformed_abundance_train.csv",x)])
+  input_info = data.frame(test_abundance_data,train_abundance_data)
+
+  metadata_train = paste(rownames(input_info),"_train_metadata.csv",sep="")
+  metadata_test = paste(rownames(input_info),"_test_metadata.csv",sep="")
+
+  train_fold1 = paste(rownames(input_info),".train_subjects_1.txt",sep="")
+  train_fold2 = paste(rownames(input_info),".train_subjects_2.txt",sep="")
+  train_fold3 = paste(rownames(input_info),".train_subjects_3.txt",sep="")
+  test_subjects = paste(rownames(input_info),".test_subjects.txt",sep="")
+  input_info$metadata_train = metadata_train
+  input_info$metadata_test = metadata_test
+  input_info$train_fold1 = train_fold1
+  input_info$train_fold2 = train_fold2
+  input_info$train_fold3 = train_fold3
+  input_info$test_subjects = test_subjects
+  write.csv(input_info,file=paste("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_level",abundance_file_type,cutoff,".csv",sep=""),row.names = FALSE,quote=FALSE)
+  return(input_info)
+}
+
+pathway_info = get_input_files_with_cutoff(abundance_file_type="pathway",cutoff=0.3)
+
+```
+
+#Now run initial ttests
+
+```{bash}
+tail -n +2 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_levelpathway.csv > /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_levelpathway_noheader.csv
+
+tail -n +2 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_levelspecies.csv > /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_levelspecies_noheader.csv
+
+tail -n +2 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_levelpathway0.3.csv > /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_levelpathway_noheader0.3.csv
+
+
+head -n 1 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_levelpathway_noheader0.3.csv > test.csv
+
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/run_paired_univariate_feature_selection_batch.bash models_input_files_parsed_v4_before_vs_far_from_condition_subject_levelpathway_noheader.csv 1 train
+
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/run_paired_univariate_feature_selection_batch.bash models_input_files_parsed_v4_before_vs_far_from_condition_subject_levelspecies_noheader.csv 1 train
+
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/run_paired_univariate_feature_selection_batch_cutoff.bash models_input_files_parsed_v4_before_vs_far_from_condition_subject_levelpathway_noheader0.3.csv 1 0.3 train
+
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/run_paired_univariate_feature_selection_batch_cutoff.bash models_input_files_parsed_v4_before_vs_far_from_condition_subject_levelpathway_noheader.csv 1 0.9 test
+
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/run_paired_univariate_feature_selection_batch_cutoff.bash models_input_files_parsed_v4_before_vs_far_from_condition_subject_levelspecies_noheader.csv 1 0.3 test
+
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/run_paired_univariate_feature_selection_batch_cutoff.bash models_input_files_parsed_v4_before_vs_far_from_condition_subject_levelpathway_noheader0.3.csv 1 0.3 test
+
+```
+
+#Get significant genes
+
+```{r}
+pway_results = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/",pattern="_pathwayoutput_ttest_results.rds",full.names = TRUE,recursive = TRUE)
+pway_results = pway_results[grep("before_vs_far_from_condition_subject_level",pway_results)]
+
+species_results = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/",pattern="speciesoutput_ttest_results.rds",full.names = TRUE,recursive = TRUE)
+species_results = species_results[grep("before_vs_far_from_condition_subject_level",species_results)]
+
+pway_results_test_0.9 = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/",pattern="_pathway0.9testoutput_ttest_results.rds",full.names = TRUE,recursive = TRUE)
+pway_results_test_0.9 = pway_results_test_0.9[grep("before_vs_far_from_condition_subject_level",pway_results_test_0.9)]
+
+pway_results_test_0.3 = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/",pattern="_pathway0.3testoutput_ttest_results.rds",full.names = TRUE,recursive = TRUE)
+pway_results_test_0.3 = pway_results_test_0.3[grep("before_vs_far_from_condition_subject_level",pway_results_test_0.3)]
+
+species_results_test_0.3 = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/",pattern="_species0.3testoutput_ttest_results.rds",full.names = TRUE,recursive = TRUE)
+species_results_test_0.3 = species_results_test_0.3[grep("before_vs_far_from_condition_subject_level",species_results_test_0.3)]
+
+get_sig_genes = function(file_list,input_csv_param,output_file) {
+  results_list = lapply(file_list,function(x) readRDS(x))
+  results_list_BY = lapply(results_list, function(x) x[[2]])
+  names(results_list_BY) = file_list
+  mean(sapply(results_list_BY,length))
+  my_genes_before_vs_far_list_BY_gt0 = results_list_BY[sapply(results_list_BY,length)>0]
+  input_csv = read.table(input_csv_param,sep=",",header=FALSE)
+  dirs_to_get = basename(dirname(names(my_genes_before_vs_far_list_BY_gt0)))
+  input_csv_for_lmer = input_csv[sapply(dirs_to_get, function(x) grep(x,input_csv[,1])),]
+  write.table(input_csv_for_lmer,file=output_file,sep=",",col.names=FALSE,row.names=FALSE,quote=FALSE)
+}
+
+
+get_sig_genes(pway_results,"/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_levelpathway_noheader.csv","models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_pathway.csv")
+
+get_sig_genes(species_results,"/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_levelspecies_noheader.csv","models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_species.csv")
+
+get_sig_genes(pway_results_cutoff,"/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_levelpathway_noheader0.3.csv","/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_pathway0.3.csv")
+
+
+get_sig_genes(pway_results_test_0.9,"/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_levelpathway_noheader.csv","/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_pathway_test_0.9.csv")
+
+get_sig_genes(pway_results_test_0.3,"/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_levelpathway_noheader0.3.csv","/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_pathway_test_0.3.csv")
+
+get_sig_genes(species_results_test_0.3,"/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_levelspecies_noheader.csv","/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_species_test_0.3.csv")
+
+```
+
+#Now its time for mixed effect model
+
+#First for each metadata file get the number of samples per subject so I can normalize by that in my model.
+
+```{r}
+get_samples_per_subject = function(input_file,output_file,test_or_train) {
+  input_file = read.csv(input_file,header=FALSE)
+  if(test_or_train == "train") {
+    metadata_train = input_file[,3]
+  } else {
+    metadata_train = input_file[,4] 
+  }
+  new_metadata_file_names = sapply(metadata_train, function(metadatafile) {
+  metadata_temp = read.csv(metadatafile)
+  mapping_file = paste(strsplit(metadatafile,split="_proportion_train_")[[1]][1],".mapping.csv",sep="")
+  mapping_df = read.csv(mapping_file)
+  samples_per_subject = sapply(metadata_temp$SubjectID, function(subjectID) {
+    sample_num_per_window = sum(mapping_df[,1]==subjectID)
+    return(sample_num_per_window)
+  })
+  metadata_temp$samples_per_subject = samples_per_subject
+  metadatafile_new = gsub("_metadata.csv","_metadata_for_lmer.csv",metadatafile)
+  write.csv(metadata_temp,file=metadatafile_new)
+  return(metadatafile_new)
+  })
+  if(test_or_train == "train") {
+    input_file[,3] = new_metadata_file_names
+  } else {
+    input_file[,4] = new_metadata_file_names
+  }
+  write.table(input_file,file=output_file,sep=",",col.names=FALSE,row.names=FALSE,quote=FALSE)
+}
+
+
+
+get_samples_per_subject("models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_pathway.csv","models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_pathway_2.csv","train")
+
+get_samples_per_subject("models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_species.csv","models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_species_2.csv","train")
+
+get_samples_per_subject("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_pathway0.3.csv","/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_pathway0.3_2.csv","train")
+
+
+get_samples_per_subject("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_pathway_test_0.9.csv","/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_pathway_test_0.9_2.csv","test")
+
+get_samples_per_subject("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_pathway_test_0.3.csv","/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_pathway_test_0.3_2.csv","test")
+
+get_samples_per_subject("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_species_test_0.3.csv","/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_species_test_0.3_2.csv","test")
+```
+
+#Now run lmer
+
+```{bash}
+
+head -n 1 models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_pathway_2.csv > test.csv
+
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/run_paired_univariate_feature_selection_v3_bulk.bash models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_pathway_2.csv 1
+
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/run_paired_univariate_feature_selection_v3_bulk.bash models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_species_2.csv 1
+
+sbatch -n 1 -c 1 --mem=10G -p short -t 0-10:00 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/run_paired_univariate_feature_selection_v3_bulk_cutoff.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_pathway0.3_2.csv 1 0.3 train
+
+# do for test
+sbatch -n 1 -c 1 --mem=10G -p short -t 0-10:00 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/run_paired_univariate_feature_selection_v3_bulk_cutoff.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_pathway_test_0.9_2.csv 1 0.9 test
+
+sbatch -n 1 -c 1 --mem=10G -p short -t 0-10:00 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/run_paired_univariate_feature_selection_v3_bulk_cutoff.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_pathway_test_0.3_2.csv 1 0.3 test
+
+sbatch -n 1 -c 1 --mem=10G -p short -t 0-10:00 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/run_paired_univariate_feature_selection_v3_bulk_cutoff.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_species_test_0.3_2.csv 1 0.3 test
+
+```
+
+#Now get input for round 1 of permutation tests
+
+```{r}
+
+#rm /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/*/*_speciesoutput_lmer_feature_selection_results_window_size_adjustedbootstrap_one_sig_genes.txt  if I need to redo
+
+library(data.table)
+
+get_permutation_input = function(genetype,output) {
+  if(genetype=="species") {
+    my_genes_files = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/",pattern="_speciesoutput_lmer_feature_selection_results_window_size_adjusted.rds",full.names = TRUE,recursive = TRUE)
+  } else if(genetype == "pathway") {
+    my_genes_files = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/",pattern="_pathwayoutput_lmer_feature_selection_results_window_size_adjusted.rds",full.names = TRUE,recursive = TRUE)
+  }
+
+  my_genes_before_vs_far = my_genes_files[grep("before_vs_far_from_condition_subject_level",my_genes_files)]
+  my_genes_before_vs_far = my_genes_before_vs_far[grep("all_HLA",my_genes_before_vs_far)]
+  my_genes_before_vs_far_list = lapply(my_genes_before_vs_far,function(x) readRDS(x))
+  my_genes_before_vs_far_list_sig = lapply(1:length(my_genes_before_vs_far_list), function(ind) {
+    mydf = my_genes_before_vs_far_list[[ind]]
+    mydf = mydf[mydf$singular == 0,]
+    mydf = mydf[!is.na(mydf$pvalue),]
+    mydf$BY = p.adjust(mydf$pvalue,method="BY")
+    mydf = mydf[mydf$BY < 0.05,]
+    mydf = mydf[order(mydf$pvalue),]
+    outputname = gsub(".rds","bootstrap_one_sig_genes.txt",my_genes_before_vs_far[ind])
+    if(length(rownames(mydf))>0) {
+      write.table(rownames(mydf),file=outputname,col.names=FALSE,row.names=FALSE,quote=FALSE) 
+    }
+    mapping_files = gsub("_proportion_train_0.66","",basename(dirname(my_genes_before_vs_far[[ind]])))
+    mapping_files = gsub("_proportion_train_0.5","",mapping_files)
+    mapping_files = paste(mapping_files,".mapping.csv",sep="")
+    train_metadata = paste(basename(dirname(my_genes_before_vs_far[[ind]])),"_train_metadata.csv",sep="")
+    train_subjects = paste(basename(dirname(my_genes_before_vs_far[[ind]])),".train_subjects.txt",sep="")
+    return(c(mapping_files,train_metadata,train_subjects,outputname,nrow(mydf)))
+  })
+  my_genes_before_vs_far_list_sig = do.call("rbind",my_genes_before_vs_far_list_sig)
+  my_genes_before_vs_far_list_sig = as.data.frame(my_genes_before_vs_far_list_sig)
+  my_genes_before_vs_far_list_sig[,5] = as.numeric(my_genes_before_vs_far_list_sig[,5])
+  my_genes_before_vs_far_list_sig = my_genes_before_vs_far_list_sig[my_genes_before_vs_far_list_sig[,5]>0,]
+  my_genes_before_vs_far_list_sig = my_genes_before_vs_far_list_sig[,-5]
+  write.table(my_genes_before_vs_far_list_sig,file=output,sep="\t",col.names=FALSE,row.names=FALSE,quote=FALSE)
+  return(my_genes_before_vs_far_list_sig)
+}
+
+species_blah = get_permutation_input(genetype="species",output="before_vs_after_subject_level_bootstrapping_input_files_3_window_size_boot_species.txt")
+pathway_blah = get_permutation_input(genetype="pathway",output="before_vs_after_subject_level_bootstrapping_input_files_3_window_size_boot_pathway.txt")
+
+
+
+
+get_permutation_input_with_cutoff = function(genetype,output,cutoff) {
+  if(genetype=="species") {
+    my_genes_files = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/",pattern=paste("_species",cutoff,"output_lmer_feature_selection_results_window_size_adjusted.rds",sep=""),full.names = TRUE,recursive = TRUE)
+  } else if(genetype == "pathway") {
+    my_genes_files = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/",pattern=paste("_pathway",cutoff,"output_lmer_feature_selection_results_window_size_adjusted.rds",sep=""),full.names = TRUE,recursive = TRUE)
+  }
+
+  my_genes_before_vs_far = my_genes_files[grep("before_vs_far_from_condition_subject_level",my_genes_files)]
+  my_genes_before_vs_far = my_genes_before_vs_far[grep("all_HLA",my_genes_before_vs_far)]
+  my_genes_before_vs_far_list = lapply(my_genes_before_vs_far,function(x) readRDS(x))
+  my_genes_before_vs_far_list_sig = lapply(1:length(my_genes_before_vs_far_list), function(ind) {
+    mydf = my_genes_before_vs_far_list[[ind]]
+    mydf = mydf[mydf$singular == 0,]
+    mydf = mydf[!is.na(mydf$pvalue),]
+    mydf$BY = p.adjust(mydf$pvalue,method="BY")
+    mydf = mydf[mydf$BY < 0.05,]
+    mydf = mydf[order(mydf$pvalue),]
+    outputname = gsub(".rds","bootstrap_one_sig_genes.txt",my_genes_before_vs_far[ind])
+    if(length(rownames(mydf))>0) {
+      write.table(rownames(mydf),file=outputname,col.names=FALSE,row.names=FALSE,quote=FALSE) 
+    }
+    mapping_files = gsub("_proportion_train_0.66","",basename(dirname(my_genes_before_vs_far[[ind]])))
+    mapping_files = gsub("_proportion_train_0.5","",mapping_files)
+    mapping_files = paste(mapping_files,".mapping.csv",sep="")
+    train_metadata = paste(basename(dirname(my_genes_before_vs_far[[ind]])),"_train_metadata.csv",sep="")
+    train_subjects = paste(basename(dirname(my_genes_before_vs_far[[ind]])),".train_subjects.txt",sep="")
+    return(c(mapping_files,train_metadata,train_subjects,outputname,nrow(mydf)))
+  })
+  my_genes_before_vs_far_list_sig = do.call("rbind",my_genes_before_vs_far_list_sig)
+  my_genes_before_vs_far_list_sig = as.data.frame(my_genes_before_vs_far_list_sig)
+  my_genes_before_vs_far_list_sig[,5] = as.numeric(my_genes_before_vs_far_list_sig[,5])
+  my_genes_before_vs_far_list_sig = my_genes_before_vs_far_list_sig[my_genes_before_vs_far_list_sig[,5]>0,]
+  my_genes_before_vs_far_list_sig = my_genes_before_vs_far_list_sig[,-5]
+  write.table(my_genes_before_vs_far_list_sig,file=output,sep="\t",col.names=FALSE,row.names=FALSE,quote=FALSE)
+  return(my_genes_before_vs_far_list_sig)
+}
+
+pathway_blah = get_permutation_input_with_cutoff(genetype="pathway",output="before_vs_after_subject_level_bootstrapping_input_files_3_window_size_boot_pathway_cutoff_0.3.txt",0.3)
+
+
+
+get_permutation_input_with_cutoff_test_or_train = function(genetype,output,cutoff,test_or_train) {
+  if(genetype=="species") {
+    my_genes_files = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/",pattern=paste("_species",cutoff,test_or_train,"output_lmer_feature_selection_results_window_size_adjusted.rds",sep=""),full.names = TRUE,recursive = TRUE)
+  } else if(genetype == "pathway") {
+    my_genes_files = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/",pattern=paste("_pathway",cutoff,test_or_train,"output_lmer_feature_selection_results_window_size_adjusted.rds",sep=""),full.names = TRUE,recursive = TRUE)
+  }
+
+  my_genes_before_vs_far = my_genes_files[grep("before_vs_far_from_condition_subject_level",my_genes_files)]
+  my_genes_before_vs_far = my_genes_before_vs_far[grep("all_HLA",my_genes_before_vs_far)]
+  my_genes_before_vs_far_list = lapply(my_genes_before_vs_far,function(x) readRDS(x))
+  my_genes_before_vs_far_list_sig = lapply(1:length(my_genes_before_vs_far_list), function(ind) {
+    mydf = my_genes_before_vs_far_list[[ind]]
+    mydf = mydf[mydf$singular == 0,]
+    mydf = mydf[!is.na(mydf$pvalue),]
+    mydf$BY = p.adjust(mydf$pvalue,method="BY")
+    mydf = mydf[mydf$BY < 0.05,]
+    mydf = mydf[order(mydf$pvalue),]
+    outputname = gsub(".rds","bootstrap_one_sig_genes.txt",my_genes_before_vs_far[ind])
+    if(length(rownames(mydf))>0) {
+      write.table(rownames(mydf),file=outputname,col.names=FALSE,row.names=FALSE,quote=FALSE) 
+    }
+    mapping_files = gsub("_proportion_train_0.66","",basename(dirname(my_genes_before_vs_far[[ind]])))
+    mapping_files = gsub("_proportion_train_0.5","",mapping_files)
+    mapping_files = paste(mapping_files,".mapping.csv",sep="")
+    train_metadata = paste(basename(dirname(my_genes_before_vs_far[[ind]])),"_test_metadata.csv",sep="")
+    train_subjects = paste(basename(dirname(my_genes_before_vs_far[[ind]])),".test_subjects.txt",sep="")
+    return(c(mapping_files,train_metadata,train_subjects,outputname,nrow(mydf)))
+  })
+  my_genes_before_vs_far_list_sig = do.call("rbind",my_genes_before_vs_far_list_sig)
+  my_genes_before_vs_far_list_sig = as.data.frame(my_genes_before_vs_far_list_sig)
+  my_genes_before_vs_far_list_sig[,5] = as.numeric(my_genes_before_vs_far_list_sig[,5])
+  my_genes_before_vs_far_list_sig = my_genes_before_vs_far_list_sig[my_genes_before_vs_far_list_sig[,5]>0,]
+  my_genes_before_vs_far_list_sig = my_genes_before_vs_far_list_sig[,-5]
+  write.table(my_genes_before_vs_far_list_sig,file=output,sep="\t",col.names=FALSE,row.names=FALSE,quote=FALSE)
+  return(my_genes_before_vs_far_list_sig)
+}
+
+pathway_blah_test_0.9 = get_permutation_input_with_cutoff_test_or_train(genetype="pathway",output="before_vs_after_subject_level_bootstrapping_input_files_3_window_size_boot_pathway_cutoff_0.9.test.txt",0.9,"test")
+
+pathway_blah_test_0.3 = get_permutation_input_with_cutoff_test_or_train(genetype="pathway",output="before_vs_after_subject_level_bootstrapping_input_files_3_window_size_boot_pathway_cutoff_0.3.test.txt",0.3,"test")
+
+species_blah_test = get_permutation_input_with_cutoff_test_or_train(genetype="species",output="before_vs_after_subject_level_bootstrapping_input_files_3_window_size_boot_species_cutoff_0.3.test.txt",0.3,"test")
+```
+
+```{bash}
+
+cd /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4
+
+#rm */*species_bootstrap_ttest_results_round1.rds if need to redo
+
+head -n 4 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/before_vs_after_subject_level_bootstrapping_input_files_3_window_size_boot_pathway.txt | tail -n 1 > test.txt
+
+sbatch -c 1 -t 0-02:00 -p short --mem=10G prep_abundance_for_voe_bulk_training_data_v3_create_boostraps_species_pathway.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/before_vs_after_subject_level_bootstrapping_input_files_3_window_size_boot_pathway.txt 1 pathway
+
+sbatch -c 1 -t 0-02:00 -p short --mem=10G prep_abundance_for_voe_bulk_training_data_v3_create_boostraps_species_pathway.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/before_vs_after_subject_level_bootstrapping_input_files_3_window_size_boot_species.txt 1 species
+
+
+sbatch -c 1 -t 0-04:00 -p short --mem=10G prep_abundance_for_voe_bulk_training_data_v3_create_boostraps_species_pathway_cutoff.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/before_vs_after_subject_level_bootstrapping_input_files_3_window_size_boot_pathway_cutoff_0.3.txt 1 pathway 0.3
+
+#do on test data
+
+sbatch -c 1 -t 0-04:00 -p short --mem=10G prep_abundance_for_voe_bulk_training_data_v3_create_boostraps_species_pathway_cutoff_train_or_test.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/before_vs_after_subject_level_bootstrapping_input_files_3_window_size_boot_pathway_cutoff_0.9.test.txt 1 pathway 0.9 test
+
+sbatch -c 1 -t 0-04:00 -p short --mem=10G prep_abundance_for_voe_bulk_training_data_v3_create_boostraps_species_pathway_cutoff_train_or_test.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/before_vs_after_subject_level_bootstrapping_input_files_3_window_size_boot_pathway_cutoff_0.3.test.txt 1 pathway 0.3 test
+
+sbatch -c 1 -t 0-04:00 -p short --mem=10G prep_abundance_for_voe_bulk_training_data_v3_create_boostraps_species_pathway_cutoff_train_or_test.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/before_vs_after_subject_level_bootstrapping_input_files_3_window_size_boot_species_cutoff_0.3.test.txt 1 species 0.3 test
+
+```
+
+#Now get input for second round of permutation test where I look at window size
+
+```{r}
+
+# rm */*species_bootstrap_ttest_results_round1_sig_names.txt if I want to redo something
+
+library(data.table)
+
+get_permutation_input = function(genetype,output) {
+  if(genetype=="species") {
+    my_genes_files = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/",pattern="species_bootstrap_ttest_results_round1.rds",full.names = TRUE,recursive = TRUE)
+    my_genes_files = my_genes_files[-grep("testspecies",my_genes_files)]
+  } else if(genetype == "pathway") {
+    my_genes_files = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/",pattern="pathway_bootstrap_ttest_results_round1.rds",full.names = TRUE,recursive = TRUE)
+    my_genes_files = my_genes_files[-grep("testpathway",my_genes_files)]
+    my_genes_files = my_genes_files[-grep("0.3",my_genes_files)]
+  }
+  still_sig_gene_names = lapply(my_genes_files, function(myoutfile) {
+    print(myoutfile)
+    myrds = readRDS(myoutfile)
+    myrds_pvals = do.call("cbind",lapply(myrds, function(mydf) mydf[,1]))
+    rownames(myrds_pvals) = rownames(myrds[[1]])
+    proportion_sig = rowSums(myrds_pvals<0.05,na.rm = TRUE)/ncol(myrds_pvals)
+    proportion_still_sig = proportion_sig[proportion_sig>0.95]
+    outputname = gsub("_bootstrap_ttest_results_round1.rds","_bootstrap_ttest_results_round1_sig_names.txt",myoutfile)
+    if(length(names(proportion_still_sig))>0) {
+      write.table(names(proportion_still_sig),file=outputname,col.names=FALSE,row.names=FALSE,quote=FALSE) 
+    }
+    mapping_files = gsub("_proportion_train_0.66","",basename(dirname(myoutfile)))
+    mapping_files = gsub("_proportion_train_0.5","",mapping_files)
+    mapping_files = paste(mapping_files,".mapping.csv",sep="")
+    train_metadata = paste(basename(dirname(myoutfile)),"_train_metadata.csv",sep="")
+    train_subjects = paste(basename(dirname(myoutfile)),".train_subjects.txt",sep="")
+    return(c(mapping_files,train_metadata,train_subjects,outputname,length(proportion_still_sig)))
+  })
+  my_genes_before_vs_far_list_sig = do.call("rbind",still_sig_gene_names)
+  my_genes_before_vs_far_list_sig = as.data.frame(my_genes_before_vs_far_list_sig)
+  my_genes_before_vs_far_list_sig[,5] = as.numeric(my_genes_before_vs_far_list_sig[,5])
+  my_genes_before_vs_far_list_sig = my_genes_before_vs_far_list_sig[my_genes_before_vs_far_list_sig[,5]>0,]
+  my_genes_before_vs_far_list_sig = my_genes_before_vs_far_list_sig[,-5]
+  write.table(my_genes_before_vs_far_list_sig,file=output,sep="\t",col.names=FALSE,row.names=FALSE,quote=FALSE)
+  return(my_genes_before_vs_far_list_sig)
+}
+
+species_blah = get_permutation_input(genetype="species",output="before_vs_after_subject_level_bootstrapping_input_files_3_window_size_boot_species_2.txt")
+pathway_blah = get_permutation_input(genetype="pathway",output="before_vs_after_subject_level_bootstrapping_input_files_3_window_size_boot_pathway_2.txt")
+
+
+
+get_permutation_input_cutoff = function(genetype,output,cutoff) {
+  if(genetype=="species") {
+    my_genes_files = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/",pattern=paste(cutoff,"species_bootstrap_ttest_results_round1.rds",sep=""),full.names = TRUE,recursive = TRUE)
+  } else if(genetype == "pathway") {
+    my_genes_files = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/",pattern=paste(cutoff,"pathway_bootstrap_ttest_results_round1.rds",sep=""),full.names = TRUE,recursive = TRUE)
+  }
+  still_sig_gene_names = lapply(my_genes_files, function(myoutfile) {
+    myrds = readRDS(myoutfile)
+    myrds_pvals = do.call("cbind",lapply(myrds, function(mydf) mydf[,1]))
+    rownames(myrds_pvals) = rownames(myrds[[1]])
+    proportion_sig = rowSums(myrds_pvals<0.05,na.rm=TRUE)/ncol(myrds_pvals)
+    proportion_still_sig = proportion_sig[proportion_sig>0.95]
+    outputname = gsub("_bootstrap_ttest_results_round1.rds","_bootstrap_ttest_results_round1_sig_names.txt",myoutfile)
+    if(length(names(proportion_still_sig))>0) {
+      write.table(names(proportion_still_sig),file=outputname,col.names=FALSE,row.names=FALSE,quote=FALSE) 
+    }
+    mapping_files = gsub("_proportion_train_0.66","",basename(dirname(myoutfile)))
+    mapping_files = gsub("_proportion_train_0.5","",mapping_files)
+    mapping_files = paste(mapping_files,".mapping.csv",sep="")
+    train_metadata = paste(basename(dirname(myoutfile)),"_train_metadata.csv",sep="")
+    train_subjects = paste(basename(dirname(myoutfile)),".train_subjects.txt",sep="")
+    return(c(mapping_files,train_metadata,train_subjects,outputname,length(proportion_still_sig)))
+  })
+  my_genes_before_vs_far_list_sig = do.call("rbind",still_sig_gene_names)
+  my_genes_before_vs_far_list_sig = as.data.frame(my_genes_before_vs_far_list_sig)
+  my_genes_before_vs_far_list_sig[,5] = as.numeric(my_genes_before_vs_far_list_sig[,5])
+  my_genes_before_vs_far_list_sig = my_genes_before_vs_far_list_sig[my_genes_before_vs_far_list_sig[,5]>0,]
+  my_genes_before_vs_far_list_sig = my_genes_before_vs_far_list_sig[,-5]
+  write.table(my_genes_before_vs_far_list_sig,file=output,sep="\t",col.names=FALSE,row.names=FALSE,quote=FALSE)
+  return(my_genes_before_vs_far_list_sig)
+}
+
+pathway_blah = get_permutation_input_cutoff(genetype="pathway",output="before_vs_after_subject_level_bootstrapping_input_files_3_window_size_boot_pathway_2_with_cutoff.txt",cutoff=0.3)
+
+
+get_permutation_input_cutoff_train_or_test = function(genetype,output,cutoff,train_or_test) {
+  if(genetype=="species") {
+    my_genes_files = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/",pattern=paste(cutoff,train_or_test,"species_bootstrap_ttest_results_round1.rds",sep=""),full.names = TRUE,recursive = TRUE)
+  } else if(genetype == "pathway") {
+    my_genes_files = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/",pattern=paste(cutoff,train_or_test,"pathway_bootstrap_ttest_results_round1.rds",sep=""),full.names = TRUE,recursive = TRUE)
+  }
+  still_sig_gene_names = lapply(my_genes_files, function(myoutfile) {
+    myrds = readRDS(myoutfile)
+    myrds_pvals = do.call("cbind",lapply(myrds, function(mydf) mydf[,1]))
+    rownames(myrds_pvals) = rownames(myrds[[1]])
+    proportion_sig = rowSums(myrds_pvals<0.05,na.rm=TRUE)/ncol(myrds_pvals)
+    proportion_still_sig = proportion_sig[proportion_sig>0.95]
+    outputname = gsub("_bootstrap_ttest_results_round1.rds","_bootstrap_ttest_results_round1_sig_names.txt",myoutfile)
+    if(length(names(proportion_still_sig))>0) {
+      write.table(names(proportion_still_sig),file=outputname,col.names=FALSE,row.names=FALSE,quote=FALSE) 
+    }
+    mapping_files = gsub("_proportion_train_0.66","",basename(dirname(myoutfile)))
+    mapping_files = gsub("_proportion_train_0.5","",mapping_files)
+    mapping_files = paste(mapping_files,".mapping.csv",sep="")
+    if(train_or_test == "train") {
+      train_metadata = paste(basename(dirname(myoutfile)),"_train_metadata.csv",sep="")
+      train_subjects = paste(basename(dirname(myoutfile)),".train_subjects.txt",sep="")
+    } else {
+      train_metadata = paste(basename(dirname(myoutfile)),"_test_metadata.csv",sep="")
+      train_subjects = paste(basename(dirname(myoutfile)),".test_subjects.txt",sep="")
+    }
+    return(c(mapping_files,train_metadata,train_subjects,outputname,length(proportion_still_sig)))
+  })
+  my_genes_before_vs_far_list_sig = do.call("rbind",still_sig_gene_names)
+  my_genes_before_vs_far_list_sig = as.data.frame(my_genes_before_vs_far_list_sig)
+  my_genes_before_vs_far_list_sig[,5] = as.numeric(my_genes_before_vs_far_list_sig[,5])
+  my_genes_before_vs_far_list_sig = my_genes_before_vs_far_list_sig[my_genes_before_vs_far_list_sig[,5]>0,]
+  my_genes_before_vs_far_list_sig = my_genes_before_vs_far_list_sig[,-5]
+  write.table(my_genes_before_vs_far_list_sig,file=output,sep="\t",col.names=FALSE,row.names=FALSE,quote=FALSE)
+  return(my_genes_before_vs_far_list_sig)
+}
+
+pathway_0.3_test_blah = get_permutation_input_cutoff_train_or_test(genetype="pathway",output="before_vs_after_subject_level_bootstrapping_input_files_3_window_size_boot_pathway_0.3_test_2.txt",cutoff=0.3,train_or_test="test")
+
+pathway_0.9_test_blah = get_permutation_input_cutoff_train_or_test(genetype="pathway",output="before_vs_after_subject_level_bootstrapping_input_files_3_window_size_boot_pathway_0.9_test_2.txt",cutoff=0.9,train_or_test="test")
+
+species_0.9_test_blah = get_permutation_input_cutoff_train_or_test(genetype="species",output="before_vs_after_subject_level_bootstrapping_input_files_3_window_size_boot_species_0.3_test_2.txt",cutoff=0.3,train_or_test="test")
+
+```
+
+```{bash}
+cd /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4
+
+# if I want to redo rm */*species_bootstrap_ttest_results_round2.rds
+
+sbatch -c 1 -t 0-02:00 -p short --mem=10G prep_abundance_for_voe_bulk_training_data_v3_create_boostraps_window_size_species_pathway.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/before_vs_after_subject_level_bootstrapping_input_files_3_window_size_boot_pathway_2.txt 1 pathway
+
+sbatch -c 1 -t 0-02:00 -p short --mem=10G prep_abundance_for_voe_bulk_training_data_v3_create_boostraps_window_size_species_pathway.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/before_vs_after_subject_level_bootstrapping_input_files_3_window_size_boot_species_2.txt 1 species
+
+
+sbatch -c 1 -t 0-06:00 -p short --mem=10G prep_abundance_for_voe_bulk_training_data_v3_create_boostraps_window_size_species_pathway_cutoff.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/before_vs_after_subject_level_bootstrapping_input_files_3_window_size_boot_pathway_2_with_cutoff.txt 1 pathway 0.3
+
+# do test
+
+sbatch -c 1 -t 0-06:00 -p short --mem=10G prep_abundance_for_voe_bulk_training_data_v3_create_boostraps_window_size_species_pathway_cutoff_train_test.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/before_vs_after_subject_level_bootstrapping_input_files_3_window_size_boot_pathway_0.3_test_2.txt 1 pathway 0.3 test
+
+sbatch -c 1 -t 0-06:00 -p short --mem=10G prep_abundance_for_voe_bulk_training_data_v3_create_boostraps_window_size_species_pathway_cutoff_train_test.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/before_vs_after_subject_level_bootstrapping_input_files_3_window_size_boot_pathway_0.9_test_2.txt 1 pathway 0.9 test
+
+sbatch -c 1 -t 0-06:00 -p short --mem=10G prep_abundance_for_voe_bulk_training_data_v3_create_boostraps_window_size_species_pathway_cutoff_train_test.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/before_vs_after_subject_level_bootstrapping_input_files_3_window_size_boot_species_0.3_test_2.txt 1 species 0.3 test
+
+```
+
+#Get all sig genes so far
+
+#Do one last bootstrapping where I take random control subjects and compare them against each other as a negative control
+
+```{r}
+library(data.table)
+library(RNOmni)
+
+# first get list of sig gene
+get_sig_genes = function(original_input,abundance_type,cutoff,train_or_test) {
+  input_orig = read.table(original_input,header=FALSE,sep="\t")
+  input_final_list = apply(input_orig, 1, function(myrow) {
+    my_dirname = dirname(myrow[4])
+    print(my_dirname)
+    if(abundance_type == "species") {
+      myfiles = list.files(my_dirname,pattern="species_bootstrap_ttest_results_round2.rds",full.names = TRUE) 
+      if(cutoff == 0.3) {
+        if(train_or_test == "train") {
+          myfiles = myfiles[match(paste(my_dirname,"/",basename(my_dirname),"species_bootstrap_ttest_results_round2.rds",sep=""),myfiles)]
+        } else {
+          myfiles = myfiles[match(paste(my_dirname,"/",basename(my_dirname),"0.3testspecies_bootstrap_ttest_results_round2.rds",sep=""),myfiles)]
+        }
+      }
+    } else if(abundance_type == "pathway") {
+      myfiles = list.files(my_dirname,pattern="pathway_bootstrap_ttest_results_round2.rds",full.names = TRUE)
+      if(cutoff == 0.3) {
+        if(train_or_test == "train") {
+          myfiles = myfiles[match(paste(my_dirname,"/",basename(my_dirname),"0.3pathway_bootstrap_ttest_results_round2.rds",sep=""),myfiles)]
+        } else {
+          myfiles = myfiles[match(paste(my_dirname,"/",basename(my_dirname),"0.3testpathway_bootstrap_ttest_results_round2.rds",sep=""),myfiles)]
+        }
+      } else if(cutoff == 0.9) {
+        if(train_or_test == "train") {
+          myfiles = myfiles[match(paste(my_dirname,"/",basename(my_dirname),"pathway_bootstrap_ttest_results_round2.rds",sep=""),myfiles)]
+        } else {
+          myfiles = myfiles[match(paste(my_dirname,"/",basename(my_dirname),"0.9testpathway_bootstrap_ttest_results_round2.rds",sep=""),myfiles)]
+        }
+      }
+    }
+    myrds = readRDS(myfiles)
+    myrds_pvals = do.call("cbind",lapply(myrds, function(mydf) mydf[,1]))
+    rownames(myrds_pvals) = rownames(myrds[[1]])
+    proportion_sig = rowSums(myrds_pvals<0.05)/ncol(myrds_pvals)
+    proportion_still_sig = proportion_sig[proportion_sig>0.95]
+    if(length(proportion_still_sig)>0) {
+      return(data.frame(geneName=names(proportion_still_sig),model=basename(my_dirname))) 
+    } else {
+      return(NULL)
+    }
+  })
+  input_final_list = do.call("rbind",input_final_list)
+  return(input_final_list)
+}
+
+pathway_0.9_train = get_sig_genes(original_input="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/before_vs_after_subject_level_bootstrapping_input_files_3_window_size_boot_pathway_2.txt",abundance_type="pathway",cutoff=0.9,train_or_test="train")
+
+species_0.3_train = get_sig_genes(original_input="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/before_vs_after_subject_level_bootstrapping_input_files_3_window_size_boot_species_2.txt",abundance_type="species",cutoff=0.3,train_or_test="train")
+
+pathway_0.3_train = get_sig_genes(original_input="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/before_vs_after_subject_level_bootstrapping_input_files_3_window_size_boot_pathway_2_with_cutoff.txt",abundance_type="pathway",cutoff=0.3,train_or_test="train")
+
+pathway_0.3_test = get_sig_genes(original_input="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/before_vs_after_subject_level_bootstrapping_input_files_3_window_size_boot_pathway_0.3_test_2.txt",abundance_type="pathway",cutoff=0.3,train_or_test="test")
+
+pathway_0.9_test = get_sig_genes(original_input="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/before_vs_after_subject_level_bootstrapping_input_files_3_window_size_boot_pathway_0.9_test_2.txt",abundance_type="pathway",cutoff=0.9,train_or_test="test")
+
+species_0.3.test = get_sig_genes(original_input="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/before_vs_after_subject_level_bootstrapping_input_files_3_window_size_boot_species_0.3_test_2.txt",abundance_type="species",cutoff=0.3,train_or_test="test")
+
+# now find genes that are sig in the train and test
+
+pathway_0.9_train_test_sig_genes = data.table(rbind(pathway_0.9_train,pathway_0.9_test))[,.N,by=.(model,geneName)]
+pathway_0.9_train_test_sig_genes = pathway_0.9_train_test_sig_genes[N==2]
+
+pathway_0.3_train_test_sig_genes = data.table(rbind(pathway_0.3_train,pathway_0.3_test))[,.N,by=.(model,geneName)]
+pathway_0.3_train_test_sig_genes = pathway_0.3_train_test_sig_genes[N==2]
+
+species_0.3_train_test_sig_genes = data.table(rbind(species_0.3_train,species_0.3.test))[,.N,by=.(model,geneName)]
+species_0.3_train_test_sig_genes = species_0.3_train_test_sig_genes[N==2]
+
+
+
+get_negative_genes = function(abundance_type,gene_model) {
+  
+  gene_model$condition = sapply(strsplit(gene_model$model,split="-"), function(my_temp_list) {
+    beggin_remove = min(grep("month",my_temp_list))
+    return(paste(my_temp_list[-seq(beggin_remove,length(my_temp_list))],collapse="-"))
+  })
+  gene_model$age = sapply(strsplit(gene_model$model,split="-"), function(my_temp_list) {
+    beggin_remove = grep("month",my_temp_list)
+    month_parts = my_temp_list[beggin_remove]
+    month_parts = gsub("_before_vs_far_from_condition_subject_level","",month_parts)
+    return(paste(month_parts,collapse="-"))
+  })
+  gene_model$proportion_train = sapply(strsplit(gene_model$model,split="_proportion_train_"), function(my_temp_list) {
+    train_prop = strsplit(my_temp_list[2],split="_")[[1]][1]
+    return(train_prop)
+  })
+  if(length(-grep("serconverters_or_T1D",gene_model$condition))>0) {
+    gene_model = gene_model[-grep("serconverters_or_T1D",gene_model$condition),] 
+  }
+
+  geneNames = gene_model$geneName
+  metadata = read.csv('/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/teddy_metadata_20190821_with_GRS2.csv')
+  # don't include metadata we don't have GRS scores for
+  metadata = metadata[!is.na(metadata$GRS_score),]
+  # also only include samples we have abundance data for
+  abundance_samples = read.table("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/sample_we_have_abundance_data_for.txt",header=FALSE)
+  abundance_samples = abundance_samples[,1]
+  abundance_metadata_samples = intersect(metadata$Run,abundance_samples)
+  metadata = metadata[match(abundance_metadata_samples,metadata$Run),]
+  metadata_healthy = metadata[is.na(metadata$age_first_MIAA) & is.na(metadata$age_first_GAD) & is.na(metadata$age_first_IA2A) & is.na(metadata$age_t1d),]
+  if(abundance_type == "species") {
+    abundance_data = fread("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/humann_analysis/TEDDY_species_abundances.tsv",sep="\t",header = TRUE,data.table = FALSE)
+    rownames(abundance_data) = abundance_data[,1]
+    abundance_data = abundance_data[,-1]
+    myfiles = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4",pattern="species_bootstrap_ttest_results_round2.rds",full.names = TRUE,recursive = TRUE)
+  } else if(abundance_type == "pathway") {
+    abundance_data = fread("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/humann_analysis/TEDDY_pathabundance-cpm.tsv",sep="\t",header=TRUE,data.table = FALSE)
+    rownames(abundance_data) = abundance_data[,1]
+    abundance_data = abundance_data[,-1]
+    colnames(abundance_data) = gsub("_human_free_Abundance","",colnames(abundance_data))
+  }
+  rownames(abundance_data) = make.names(rownames(abundance_data))
+  geneNames = make.names(geneNames)
+  # get all significant genes so far in any model
+  abundance_data = abundance_data[geneNames,]
+  samples_to_keep = intersect(colnames(abundance_data),metadata_healthy$Run)  
+  abundance_data = abundance_data[,match(samples_to_keep,colnames(abundance_data))]
+  
+  metadata_healthy = metadata_healthy[match(samples_to_keep,metadata_healthy$Run),]
+  #
+  boot_function = function(window_size,myseed,mygene) {
+    mygene = make.names(mygene)
+    # choose a random age in the metadata
+    set.seed(myseed)
+    # lets make sure that we sample something large enough so we have a sample less than, to compare to
+    min_age_to_sample = min(metadata_healthy$age_at_collection) + window_size
+    sampled_age = sample(metadata_healthy$age_at_collection[metadata_healthy$age_at_collection>min_age_to_sample],size=1)
+    min_age = sampled_age-(window_size/2)
+    max_age = sampled_age+(window_size/2)
+    indexes_in_window = metadata_healthy$age_at_collection >= min_age & metadata_healthy$age_at_collection <= max_age
+    metadata_in_window = metadata_healthy[which(indexes_in_window),,drop=FALSE]
+    metadata_out_window = metadata_healthy[metadata_healthy$age_at_collection <min_age,,drop=FALSE]
+    #metadata_out_window = metadata_healthy[which(!indexes_in_window),]
+    abundance_in_window = abundance_data[mygene,metadata_in_window$Run]
+    abundance_out_window = abundance_data[mygene,metadata_out_window$Run]
+    # set colnames of abundance to subject IDs
+    colnames(abundance_in_window) = metadata_in_window$maskid
+    colnames(abundance_out_window) = metadata_out_window$maskid
+    abundance_in_window$name = rownames(abundance_in_window)
+    abundance_out_window$name = rownames(abundance_out_window)
+    abundance_in_window_dt = as.data.table(abundance_in_window)
+    abundance_out_window_dt = as.data.table(abundance_out_window)
+    abundance_in_window_dt_melt = data.table::melt(abundance_in_window_dt,id.vars=c("name"))
+    abundance_out_window_dt_melt = data.table::melt(abundance_out_window_dt,id.vars=c("name"))
+    
+    abundance_in_window_avg = abundance_in_window_dt_melt[,mean(value),by=.(name,variable)]
+    abundance_out_window_avg = abundance_out_window_dt_melt[,mean(value),by=.(name,variable)]
+    
+    abundance_in_window_avg_long = dcast(abundance_in_window_avg,variable ~ name, value.var="V1")
+    abundance_out_window_avg_long = dcast(abundance_out_window_avg,variable ~ name, value.var="V1")
+    abundance_in_window_avg_long = as.data.frame(abundance_in_window_avg_long)
+    abundance_out_window_avg_long = as.data.frame(abundance_out_window_avg_long)
+    rownames(abundance_in_window_avg_long) = abundance_in_window_avg_long[,1]
+    rownames(abundance_out_window_avg_long) = abundance_out_window_avg_long[,1]
+    abundance_in_window_avg_long = abundance_in_window_avg_long[,-1,drop=FALSE]
+    abundance_out_window_avg_long = abundance_out_window_avg_long[,-1,drop=FALSE]
+    
+    # find the subjects that are in both
+    subjects_in_out_window = intersect(rownames(abundance_in_window_avg_long),rownames(abundance_out_window_avg_long))
+    abundance_in_window_avg_long = abundance_in_window_avg_long[subjects_in_out_window,,drop=FALSE]
+    abundance_out_window_avg_long = abundance_out_window_avg_long[subjects_in_out_window,,drop=FALSE]
+    rownames(abundance_out_window_avg_long) = paste(rownames(abundance_out_window_avg_long),"_0",sep="")
+    rownames(abundance_in_window_avg_long) = paste(rownames(abundance_in_window_avg_long),"_1",sep="")
+    abundance_in_out_window_avg_long = rbind(abundance_in_window_avg_long,abundance_out_window_avg_long)
+    abundance_in_out_window_avg_long = apply(abundance_in_out_window_avg_long,2, function(mycol) {
+      return(RankNorm(mycol))
+    })
+    abundance_out_window_avg_long2 = abundance_in_out_window_avg_long[grep("_0",rownames(abundance_in_out_window_avg_long)),,drop=FALSE]
+    abundance_in_window_avg_long2 = abundance_in_out_window_avg_long[grep("_1",rownames(abundance_in_out_window_avg_long)),,drop=FALSE]
+
+    ttest_results = sapply(1:ncol(abundance_out_window_avg_long2), function(i) {
+      pval = t.test(abundance_in_window_avg_long2[,i],abundance_out_window_avg_long2[,i],paired=TRUE,alternative="two.sided")$p.value
+      return(pval)
+    })
+    return(ttest_results)
+  }
+  
+  all_pvalues = sapply(1:nrow(gene_model), function(myindex) {
+    myrow = unlist(gene_model[myindex,])
+    mygene = myrow["geneName"]
+    if(myrow["age"] == "2month") {
+      window_size = 60
+    } else if(myrow["age"] == "3month") {
+      window_size = 90
+    } else {
+      window_size = 30
+    }
+    boot_res_one_gene = sapply(1:100,function(x) {
+      boot_res = boot_function(window_size=window_size,myseed=x,mygene = mygene) 
+      return(boot_res)
+    })
+    proportion_0.05 = sum(boot_res_one_gene < 0.05)/100
+    return(c(myrow,proportion_sig=proportion_0.05))
+  })
+  all_pvalues = t(all_pvalues)
+  return(all_pvalues)
+}
+
+species_0.3_train_test_sig_genes_negatives = get_negative_genes(abundance_type="species",gene_model=species_0.3_train_test_sig_genes)
+species_0.3_train_test_sig_genes_negatives = as.data.frame(species_0.3_train_test_sig_genes_negatives)
+species_0.3_train_test_sig_genes_negatives[,7] = as.numeric(species_0.3_train_test_sig_genes_negatives[,7])
+species_0.3_train_test_sig_genes_negatives_to_keep = species_0.3_train_test_sig_genes_negatives[species_0.3_train_test_sig_genes_negatives$proportion_sig<0.05,]
+pathway_0.3_train_test_sig_genes_negatives = get_negative_genes(abundance_type="pathway",gene_model=pathway_0.3_train_test_sig_genes)
+pathway_0.3_train_test_sig_genes_negatives = as.data.frame(pathway_0.3_train_test_sig_genes_negatives)
+pathway_0.3_train_test_sig_genes_negatives[,7] = as.numeric(pathway_0.3_train_test_sig_genes_negatives[,7])
+pathway_0.3_train_test_sig_genes_negatives_to_keep = pathway_0.3_train_test_sig_genes_negatives[pathway_0.3_train_test_sig_genes_negatives$proportion_sig<0.05,]
+
+pathway_0.9_train_test_sig_genes_negatives = get_negative_genes(abundance_type="pathway",gene_model=pathway_0.9_train_test_sig_genes)
+pathway_0.9_train_test_sig_genes_negatives = as.data.frame(pathway_0.9_train_test_sig_genes_negatives)
+pathway_0.9_train_test_sig_genes_negatives[,7] = as.numeric(pathway_0.9_train_test_sig_genes_negatives[,7])
+pathway_0.9_train_test_sig_genes_negatives_to_keep = pathway_0.9_train_test_sig_genes_negatives[pathway_0.9_train_test_sig_genes_negatives$proportion_sig<0.05,]
+
+
+length(species_0.3_train_test_sig_genes_negatives) # 0
+length(pathway_0.3_train_test_sig_genes_negatives) # 0
+length(pathway_0.9_train_test_sig_genes_negatives) # 0
+
+if(length(species_0.3_train_test_sig_genes_negatives)>0) {
+  species_0.3_train_test_sig_genes = species_0.3_train_test_sig_genes[-match(species_0.3_train_test_sig_genes_negatives,species_0.3_train_test_sig_genes$geneName),]
+}
+if(length(pathway_0.3_train_test_sig_genes_negatives)>0) {
+  pathway_0.3_train_test_sig_genes = pathway_0.3_train_test_sig_genes[-match(pathway_0.3_train_test_sig_genes_negatives,pathway_0.3_train_test_sig_genes$geneName),]
+}
+if(length(pathway_0.9_train_test_sig_genes_negatives)>0) {
+  pathway_0.9_train_test_sig_genes = pathway_0.9_train_test_sig_genes[-match(pathway_0.9_train_test_sig_genes_negatives,pathway_0.9_train_test_sig_genes$geneName),]
+}
+
+write.csv(pathway_0.9_train_test_sig_genes,file="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/pathway_0.9_train_test_sig_genes.csv",row.names=FALSE)
+write.csv(pathway_0.3_train_test_sig_genes,file="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/pathway_0.3_train_test_sig_genes.csv",row.names=FALSE)
+write.csv(species_0.3_train_test_sig_genes,file="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/species_0.3_train_test_sig_genes.csv",row.names=FALSE)
+
+```
+
+#Try stratifying by age. So compare different individuals who get phenotype and don't get phenotype in a window
+
+```{r}
+library(data.table)
+library(RNOmni)
+
+# first get list of sig gene
+get_sig_genes = function(original_input,abundance_type,cutoff,train_or_test) {
+  input_orig = read.table(original_input,header=FALSE,sep="\t")
+  input_final_list = apply(input_orig, 1, function(myrow) {
+    my_dirname = dirname(myrow[4])
+    if(abundance_type == "species") {
+      myfiles = list.files(my_dirname,pattern="species_bootstrap_ttest_results_round2.rds",full.names = TRUE) 
+      if(cutoff == 0.3) {
+        if(train_or_test == "train") {
+          myfiles = myfiles[match(paste(my_dirname,"/",basename(my_dirname),"species_bootstrap_ttest_results_round2.rds",sep=""),myfiles)]
+        } else {
+          myfiles = myfiles[match(paste(my_dirname,"/",basename(my_dirname),"0.3testspecies_bootstrap_ttest_results_round2.rds",sep=""),myfiles)]
+        }
+      }
+    } else if(abundance_type == "pathway") {
+      myfiles = list.files(my_dirname,pattern="pathway_bootstrap_ttest_results_round2.rds",full.names = TRUE)
+      if(cutoff == 0.3) {
+        if(train_or_test == "train") {
+          myfiles = myfiles[match(paste(my_dirname,"/",basename(my_dirname),"0.3pathway_bootstrap_ttest_results_round2.rds",sep=""),myfiles)]
+        } else {
+          myfiles = myfiles[match(paste(my_dirname,"/",basename(my_dirname),"0.3testpathway_bootstrap_ttest_results_round2.rds",sep=""),myfiles)]
+        }
+      } else if(cutoff == 0.9) {
+        if(train_or_test == "train") {
+          myfiles = myfiles[match(paste(my_dirname,"/",basename(my_dirname),"pathway_bootstrap_ttest_results_round2.rds",sep=""),myfiles)]
+        } else {
+          myfiles = myfiles[match(paste(my_dirname,"/",basename(my_dirname),"0.9testpathway_bootstrap_ttest_results_round2.rds",sep=""),myfiles)]
+        }
+      }
+    }
+    myrds = readRDS(myfiles)
+    myrds_pvals = do.call("cbind",lapply(myrds, function(mydf) mydf[,1]))
+    rownames(myrds_pvals) = rownames(myrds[[1]])
+    proportion_sig = rowSums(myrds_pvals<0.05)/ncol(myrds_pvals)
+    proportion_still_sig = proportion_sig[proportion_sig>0.95]
+    if(length(proportion_still_sig)>0) {
+      return(data.frame(geneName=names(proportion_still_sig),model=basename(my_dirname))) 
+    } else {
+      return(NULL)
+    }
+  })
+  input_final_list = do.call("rbind",input_final_list)
+  return(input_final_list)
+}
+
+pathway_0.9_train = get_sig_genes(original_input="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/before_vs_after_subject_level_bootstrapping_input_files_3_window_size_boot_pathway_2.txt",abundance_type="pathway",cutoff=0.9,train_or_test="train")
+
+species_0.3_train = get_sig_genes(original_input="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/before_vs_after_subject_level_bootstrapping_input_files_3_window_size_boot_species_2.txt",abundance_type="species",cutoff=0.3,train_or_test="train")
+
+pathway_0.3_train = get_sig_genes(original_input="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/before_vs_after_subject_level_bootstrapping_input_files_3_window_size_boot_pathway_2_with_cutoff.txt",abundance_type="pathway",cutoff=0.3,train_or_test="train")
+
+pathway_0.3_test = get_sig_genes(original_input="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/before_vs_after_subject_level_bootstrapping_input_files_3_window_size_boot_pathway_0.3_test_2.txt",abundance_type="pathway",cutoff=0.3,train_or_test="test")
+
+pathway_0.9_test = get_sig_genes(original_input="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/before_vs_after_subject_level_bootstrapping_input_files_3_window_size_boot_pathway_0.9_test_2.txt",abundance_type="pathway",cutoff=0.9,train_or_test="test")
+
+species_0.3.test = get_sig_genes(original_input="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/before_vs_after_subject_level_bootstrapping_input_files_3_window_size_boot_species_0.3_test_2.txt",abundance_type="species",cutoff=0.3,train_or_test="test")
+
+# now find genes that are sig in the train and test
+
+pathway_0.9_train_test_sig_genes = data.table(rbind(pathway_0.9_train,pathway_0.9_test))[,.N,by=.(model,geneName)]
+pathway_0.9_train_test_sig_genes = pathway_0.9_train_test_sig_genes[N==2]
+
+pathway_0.3_train_test_sig_genes = data.table(rbind(pathway_0.3_train,pathway_0.3_test))[,.N,by=.(model,geneName)]
+pathway_0.3_train_test_sig_genes = pathway_0.3_train_test_sig_genes[N==2]
+
+species_0.3_train_test_sig_genes = data.table(rbind(species_0.3_train,species_0.3.test))[,.N,by=.(model,geneName)]
+species_0.3_train_test_sig_genes = species_0.3_train_test_sig_genes[N==2]
+
+
+
+get_sig_genes_age_stratified = function(abundance_type,gene_model) {
+  metadata = read.csv('/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/teddy_metadata_20190821_with_GRS2.csv')
+  # don't include metadata we don't have GRS scores for
+  metadata = metadata[!is.na(metadata$GRS_score),]
+  # also only include samples we have abundance data for
+  abundance_samples = read.table("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/sample_we_have_abundance_data_for.txt",header=FALSE)
+  abundance_samples = abundance_samples[,1]
+  abundance_metadata_samples = intersect(metadata$Run,abundance_samples)
+  metadata = metadata[match(abundance_metadata_samples,metadata$Run),]
+  metadata$num_autoantibody_ever = apply(metadata[,c("age_first_MIAA","age_first_GAD","age_first_IA2A")], 1, function(x) sum(!is.na(x)))
+  metadata$sero2 = metadata$num_autoantibody_ever>=2
+  
+  metadata_temp_healthy = metadata[metadata$t1d_sero_control == "control",]
+  
+  gene_model$condition = sapply(strsplit(gene_model$model,split="-"), function(my_temp_list) {
+    beggin_remove = min(grep("month",my_temp_list))
+    return(paste(my_temp_list[-seq(beggin_remove,length(my_temp_list))],collapse="-"))
+  })
+  gene_model$age = sapply(strsplit(gene_model$model,split="-"), function(my_temp_list) {
+    beggin_remove = grep("month",my_temp_list)
+    month_parts = my_temp_list[beggin_remove]
+    month_parts = gsub("_before_vs_far_from_condition_subject_level","",month_parts)
+    return(paste(month_parts,collapse="-"))
+  })
+  gene_model$proportion_train = sapply(strsplit(gene_model$model,split="_proportion_train_"), function(my_temp_list) {
+    train_prop = strsplit(my_temp_list[2],split="_")[[1]][1]
+    return(train_prop)
+  })
+  if(length(-grep("serconverters_or_T1D",gene_model$condition))>0) {
+    gene_model = gene_model[-grep("serconverters_or_T1D",gene_model$condition),] 
+  }
+  if(abundance_type == "species") {
+    abundance_data = fread("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/humann_analysis/TEDDY_species_abundances.tsv",sep="\t",header = TRUE,data.table = FALSE)
+    rownames(abundance_data) = abundance_data[,1]
+    abundance_data = abundance_data[,-1]
+  } else if(abundance_type == "pathway") {
+    abundance_data = fread("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/humann_analysis/TEDDY_pathabundance-cpm.tsv",sep="\t",header=TRUE,data.table = FALSE)
+    rownames(abundance_data) = abundance_data[,1]
+    abundance_data = abundance_data[,-1]
+    colnames(abundance_data) = gsub("_human_free_Abundance","",colnames(abundance_data))
+  }
+  rownames(abundance_data) = make.names(rownames(abundance_data))
+
+  gene_matrix_list = lapply(1:nrow(gene_model), function(myrow_index) {
+    myrow = unlist(gene_model[myrow_index,])
+    print(myrow)
+    geneName = myrow[2]
+    model_name = myrow[1]
+    condtion = myrow["condition"]
+    window = myrow["age"]
+    if(condtion == "healthy_pre-GAD") {
+      metadata_temp = metadata[!is.na(metadata$age_first_GAD),]
+      metadata_temp$time_to_condition = metadata_temp$age_first_GAD - metadata_temp$age_at_collection
+    } else if(condtion == "healthy_pre-sero") {
+      metadata_temp = metadata[metadata$sero2 ==TRUE,]
+      metadata_temp$time_to_condition = metadata_temp$age_mult_persist - metadata_temp$age_at_collection
+    } else if(condtion == "healthy_pre-IA2A") {
+      metadata_temp = metadata[!is.na(metadata$age_first_IA2A),]
+      metadata_temp$time_to_condition = metadata_temp$age_first_IA2A - metadata_temp$age_at_collection
+    } else if(condtion == "healthy_pre-t1d") {
+      metadata_temp = metadata[!is.na(metadata$age_t1d),]
+      metadata_temp$time_to_condition = metadata_temp$age_t1d - metadata_temp$age_at_collection
+    } else if(condtion == "healthy_pre-MIAA") {
+      metadata_temp = metadata[!is.na(metadata$age_first_MIAA),]
+      metadata_temp$time_to_condition = metadata_temp$age_first_MIAA - metadata_temp$age_at_collection
+    } 
+    # filter to only include metadata before condition
+    metadata_temp = metadata_temp[metadata_temp$time_to_condition>0,]
+    metadata_temp$condition = rep(NA,nrow(metadata_temp))
+    # now divide into case and control
+    if(window == "1month") {
+      metadata_temp$condition[metadata_temp$time_to_condition<=30] = 1
+      metadata_temp$condition[metadata_temp$time_to_condition>30] = 0
+    } else if(window == "1month-2month") {
+      metadata_temp$condition[metadata_temp$time_to_condition>=30 & metadata_temp$time_to_condition <= 60] = 1
+      metadata_temp$condition[metadata_temp$time_to_condition>60] = 0
+    } else if(window == "2month") {
+      metadata_temp$condition[metadata_temp$time_to_condition<=60] = 1
+      metadata_temp$condition[metadata_temp$time_to_condition>60] = 0
+    } else if(window == "2month-3month") {
+      metadata_temp$condition[metadata_temp$time_to_condition>=60 & metadata_temp$time_to_condition <= 90] = 1
+      metadata_temp$condition[metadata_temp$time_to_condition>90] = 0
+    } else if(window == "3month") {
+      metadata_temp$condition[metadata_temp$time_to_condition<=90] = 1
+      metadata_temp$condition[metadata_temp$time_to_condition>90] = 0
+    }
+    metadata_temp = metadata_temp[!is.na(metadata_temp$condition),]
+    geneName = make.names(geneName)
+    # get all significant genes so far in any model
+    abundance_data_temp = abundance_data[geneName,]
+    
+
+    # now do ttests but stratify by 6 months intervals
+    all_times = sapply(0:11, function(x) {
+      start_times1 = 0 + (183*x)
+      start_times2 = 183 + (183*x)
+      return(c(start_times1,start_times2))
+    })
+    all_time_labels = sapply(0:11, function(x) {
+      start_times1 = 0 + (0.5*x)
+      start_times1 = paste(start_times1,"years",sep="")
+      start_times2 = 0.5 + (0.5*x)
+      start_times2 = paste(start_times2,"years",sep="")
+      start_time_labels = paste(start_times1,start_times2,sep="-")
+      return(start_time_labels)
+    })
+
+    all_times = t(all_times)
+    colnames(all_times) = c("start_day","end_day")
+    rownames(all_times) = all_time_labels
+    # also add time where we include all times together
+    all_time_labels = c(all_time_labels,"all")
+    all_times = rbind(all_times,all=c(0,max(metadata_temp$age_at_collection)))
+    all_times = as.data.frame(all_times)
+    
+    # first do healthy time associations
+    library(lmerTest)
+    age_healthy_time_interval = rep(NA,nrow(all_times))
+    for(mytimes in 1:nrow(all_times)) {
+      time_begin = all_times[mytimes,1]
+      time_end = all_times[mytimes,2]
+      metadata_healthy_strat = metadata_temp_healthy[metadata_temp_healthy$age_at_collection >=time_begin & metadata_temp_healthy$age_at_collection<time_end,]
+      healthy_samples_to_keep = intersect(colnames(abundance_data_temp),metadata_healthy_strat$Run)
+      abundance_data_temp_healthy = abundance_data_temp[,match(healthy_samples_to_keep,colnames(abundance_data_temp)),drop=FALSE]
+      metadata_healthy_strat = metadata_healthy_strat[match(healthy_samples_to_keep,metadata_healthy_strat$Run),]
+      metadata_healthy_strat$abundance = unlist(abundance_data_temp_healthy[1,])
+      metadata_healthy_strat$abundance = RankNorm(metadata_healthy_strat$abundance)
+      if(var(metadata_healthy_strat$abundance)>0 & length(unique(metadata_healthy_strat$maskid))>2) {
+        lmer_res = lmerTest::lmer(abundance ~ age_at_collection + (1|maskid),data=metadata_healthy_strat)
+        if(isSingular(lmer_res)) {
+          age_healthy_time_interval[mytimes] = NA
+        } else {
+          pvalue = coef(summary(lmer_res))["age_at_collection",5]
+          age_healthy_time_interval[mytimes] = pvalue
+        }
+      } else {
+        age_healthy_time_interval[mytimes] = NA
+      }
+    }
+    names(age_healthy_time_interval) = all_time_labels
+
+    ttest_results_mat = matrix(NA,ncol=3,nrow=nrow(all_times))
+    for(mytimes in 1:nrow(all_times)) {
+      print(mytimes)
+      time_begin = all_times[mytimes,1]
+      time_end = all_times[mytimes,2]
+      metadata_temp_strat = metadata_temp[metadata_temp$age_at_collection >=time_begin & metadata_temp$age_at_collection<time_end,]
+      if(nrow(metadata_temp_strat)>0) {
+        samples_to_keep = intersect(colnames(abundance_data_temp),metadata_temp_strat$Run)
+        healthy_samples_to_keep = intersect(colnames(abundance_data_temp),metadata_temp_healthy$Run)
+        abundance_data_temp_ordered = abundance_data_temp[,match(samples_to_keep,colnames(abundance_data_temp)),drop=FALSE]
+        metadata_temp_strat = metadata_temp_strat[match(samples_to_keep,metadata_temp_strat$Run),]
+        metadata_temp_strat$maskid2 = paste(metadata_temp_strat$maskid,metadata_temp_strat$condition,sep="_")
+        
+        # average abundance data
+        colnames(abundance_data_temp_ordered) = metadata_temp_strat$maskid2
+        abundance_data_temp_ordered$name = rownames(abundance_data_temp_ordered)
+        abundance_data_temp_ordered = as.data.table(abundance_data_temp_ordered)
+        abundance_data_temp_melt = data.table::melt(abundance_data_temp_ordered,id.vars=c("name"))
+        abundance_data_temp_avg = abundance_data_temp_melt[,mean(value),by=variable]
+        abundance_data_temp_avg = as.data.frame(abundance_data_temp_avg)
+        abundance_data_temp_avg$condition = sapply(strsplit(as.character(abundance_data_temp_avg$variable),split="_"), function(x) x[2])
+        abundance_data_temp_avg$condition = as.numeric(abundance_data_temp_avg$condition)
+        abundance_data_temp_avg$subject_orig = sapply(strsplit(as.character(abundance_data_temp_avg$variable),split="_"), function(x) x[1])
+        # get paired subjects
+        subject_counts = table(abundance_data_temp_avg$subject_orig)
+        paired_subjects = names(subject_counts[subject_counts==2])
+        abundance_data_temp_avg_filter = abundance_data_temp_avg[abundance_data_temp_avg$subject_orig%in%paired_subjects,]
+        abundance_data_temp_avg_filter$V1 = RankNorm(abundance_data_temp_avg_filter$V1)
+
+        abundance_data_temp_avg_filter_ctrls = abundance_data_temp_avg_filter[abundance_data_temp_avg_filter$condition==0,]
+        abundance_data_temp_avg_filter_case = abundance_data_temp_avg_filter[abundance_data_temp_avg_filter$condition==1,]
+        abundance_data_temp_avg_filter_ctrls_order = abundance_data_temp_avg_filter_ctrls[match(paired_subjects,abundance_data_temp_avg_filter_ctrls$subject_orig),]
+        abundance_data_temp_avg_filter_case_order = abundance_data_temp_avg_filter_case[match(paired_subjects,abundance_data_temp_avg_filter_case$subject_orig),]
+        subject_number = nrow(abundance_data_temp_avg_filter_case_order)
+        if(subject_number>1 & sum(abs(abundance_data_temp_avg_filter_case_order$V1))-sum(abs(abundance_data_temp_avg_filter_ctrls_order$V1))!=0) {
+          myttest_res = t.test(abundance_data_temp_avg_filter_case_order$V1,abundance_data_temp_avg_filter_ctrls_order$V1,paired=TRUE)
+          mypval = myttest_res$p.value
+          mean_diff = myttest_res$estimate
+          ttest_results_mat[mytimes,] = c(mypval,subject_number,mean_diff)
+        } else {
+          ttest_results_mat[mytimes,] = c(NA,subject_number,NA)
+        }
+      }
+      else {
+        ttest_results_mat[mytimes,] = c(NA,NA,NA)
+      }
+    }
+    colnames(ttest_results_mat) = c("pvalue","subject_number","mean_diff")
+    rownames(ttest_results_mat) = rownames(all_times)
+    ttest_results_mat = as.data.frame(ttest_results_mat)
+    ttest_results_mat$geneName = geneName
+    ttest_results_mat$model_name = model_name
+    ttest_results_mat$healthy_pvalue = age_healthy_time_interval
+    ttest_results_mat$age_interval = rownames(ttest_results_mat)
+    return(ttest_results_mat)
+  })
+  gene_matrix_list_df = do.call("rbind",gene_matrix_list)
+  gene_matrix_list_df = gene_matrix_list_df[!is.na(gene_matrix_list_df[,1]),]
+  # get sig genes within each age interval
+  return(gene_matrix_list_df)
+}
+
+species_0.3_train_test_age_stratified_mat = get_sig_genes_age_stratified(abundance_type="species",gene_model=species_0.3_train_test_sig_genes)
+#species_0.3_train_test_age_stratified_mat = species_0.3_train_test_age_stratified_mat[species_0.3_train_test_age_stratified_mat$age_interval != "all",]
+
+species_0.3_train_test_age_stratified_mat$BH = p.adjust(species_0.3_train_test_age_stratified_mat$pvalue,method="BH")
+species_0.3_train_test_age_stratified_mat = species_0.3_train_test_age_stratified_mat[order(species_0.3_train_test_age_stratified_mat$pvalue),]
+species_0.3_train_test_age_stratified_mat[species_0.3_train_test_age_stratified_mat$BH < 0.05 & species_0.3_train_test_age_stratified_mat$healthy_pvalue >0.05,]
+write.csv(species_0.3_train_test_age_stratified_mat,file="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/species_0.3_train_test_age_stratified_mat.csv",row.names = FALSE)
+
+
+pathway_0.3_train_test_age_stratified_mat = get_sig_genes_age_stratified(abundance_type="pathway",gene_model=pathway_0.3_train_test_sig_genes)
+#pathway_0.3_train_test_age_stratified_mat = pathway_0.3_train_test_age_stratified_mat[pathway_0.3_train_test_age_stratified_mat$age_interval != "all",]
+
+pathway_0.3_train_test_age_stratified_mat$BH = p.adjust(pathway_0.3_train_test_age_stratified_mat$pvalue,method="BH")
+pathway_0.3_train_test_age_stratified_mat = pathway_0.3_train_test_age_stratified_mat[order(pathway_0.3_train_test_age_stratified_mat$pvalue),]
+write.csv(pathway_0.3_train_test_age_stratified_mat,file="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/pathway_0.3_train_test_age_stratified_mat.csv",row.names = FALSE)
+
+pathway_0.3_train_test_age_stratified_mat[pathway_0.3_train_test_age_stratified_mat$BH < 0.05 & pathway_0.3_train_test_age_stratified_mat$healthy_pvalue >0.05,]
+
+pathway_0.9_train_test_age_stratified_mat = get_sig_genes_age_stratified(abundance_type="pathway",gene_model=pathway_0.9_train_test_sig_genes)
+#pathway_0.9_train_test_age_stratified_mat = pathway_0.9_train_test_age_stratified_mat[pathway_0.9_train_test_age_stratified_mat$age_interval != "all",]
+
+pathway_0.9_train_test_age_stratified_mat$BH = p.adjust(pathway_0.9_train_test_age_stratified_mat$pvalue,method="BH")
+pathway_0.9_train_test_age_stratified_mat = pathway_0.9_train_test_age_stratified_mat[order(pathway_0.9_train_test_age_stratified_mat$pvalue),]
+write.csv(pathway_0.9_train_test_age_stratified_mat,file="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/pathway_0.9_train_test_age_stratified_mat.csv",row.names = FALSE)
+
+pathway_0.9_train_test_age_stratified_mat[pathway_0.9_train_test_age_stratified_mat$pvalue < 0.05 & pathway_0.9_train_test_age_stratified_mat$healthy_pvalue >0.05,]
+
+get_sig_genes_age_stratified_v2 = function(abundance_type,gene_model) {
+  metadata = read.csv('/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/teddy_metadata_20190821_with_GRS2.csv')
+  # don't include metadata we don't have GRS scores for
+  metadata = metadata[!is.na(metadata$GRS_score),]
+  # also only include samples we have abundance data for
+  abundance_samples = read.table("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/sample_we_have_abundance_data_for.txt",header=FALSE)
+  abundance_samples = abundance_samples[,1]
+  abundance_metadata_samples = intersect(metadata$Run,abundance_samples)
+  metadata = metadata[match(abundance_metadata_samples,metadata$Run),]
+  metadata$num_autoantibody_ever = apply(metadata[,c("age_first_MIAA","age_first_GAD","age_first_IA2A")], 1, function(x) sum(!is.na(x)))
+  metadata$sero2 = metadata$num_autoantibody_ever>=2
+  
+  metadata_temp_healthy = metadata[metadata$t1d_sero_control == "control",]
+  
+  gene_model$condition = sapply(strsplit(gene_model$model,split="-"), function(my_temp_list) {
+    beggin_remove = min(grep("month",my_temp_list))
+    return(paste(my_temp_list[-seq(beggin_remove,length(my_temp_list))],collapse="-"))
+  })
+  gene_model$age = sapply(strsplit(gene_model$model,split="-"), function(my_temp_list) {
+    beggin_remove = grep("month",my_temp_list)
+    month_parts = my_temp_list[beggin_remove]
+    month_parts = gsub("_before_vs_far_from_condition_subject_level","",month_parts)
+    return(paste(month_parts,collapse="-"))
+  })
+  gene_model$proportion_train = sapply(strsplit(gene_model$model,split="_proportion_train_"), function(my_temp_list) {
+    train_prop = strsplit(my_temp_list[2],split="_")[[1]][1]
+    return(train_prop)
+  })
+  if(length(-grep("serconverters_or_T1D",gene_model$condition))>0) {
+    gene_model = gene_model[-grep("serconverters_or_T1D",gene_model$condition),] 
+  }
+  if(abundance_type == "species") {
+    abundance_data = fread("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/humann_analysis/TEDDY_species_abundances.tsv",sep="\t",header = TRUE,data.table = FALSE)
+    rownames(abundance_data) = abundance_data[,1]
+    abundance_data = abundance_data[,-1]
+  } else if(abundance_type == "pathway") {
+    abundance_data = fread("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/humann_analysis/TEDDY_pathabundance-cpm.tsv",sep="\t",header=TRUE,data.table = FALSE)
+    rownames(abundance_data) = abundance_data[,1]
+    abundance_data = abundance_data[,-1]
+    colnames(abundance_data) = gsub("_human_free_Abundance","",colnames(abundance_data))
+  }
+  rownames(abundance_data) = make.names(rownames(abundance_data))
+
+  lmer_results_list = lapply(1:nrow(gene_model), function(myrow_index) {
+    myrow = unlist(gene_model[myrow_index,])
+    geneName = myrow[2]
+    model_name = myrow[1]
+    condtion = myrow["condition"]
+    window = myrow["age"]
+    if(condtion == "healthy_pre-GAD") {
+      metadata_temp = metadata[!is.na(metadata$age_first_GAD),]
+      metadata_temp$time_to_condition = metadata_temp$age_first_GAD - metadata_temp$age_at_collection
+    } else if(condtion == "healthy_pre-sero") {
+      metadata_temp = metadata[metadata$sero2 ==TRUE,]
+      metadata_temp$time_to_condition = metadata_temp$age_mult_persist - metadata_temp$age_at_collection
+    } else if(condtion == "healthy_pre-IA2A") {
+      metadata_temp = metadata[!is.na(metadata$age_first_IA2A),]
+      metadata_temp$time_to_condition = metadata_temp$age_first_IA2A - metadata_temp$age_at_collection
+    } else if(condtion == "healthy_pre-t1d") {
+      metadata_temp = metadata[!is.na(metadata$age_t1d),]
+      metadata_temp$time_to_condition = metadata_temp$age_t1d - metadata_temp$age_at_collection
+    } else if(condtion == "healthy_pre-MIAA") {
+      metadata_temp = metadata[!is.na(metadata$age_first_MIAA),]
+      metadata_temp$time_to_condition = metadata_temp$age_first_MIAA - metadata_temp$age_at_collection
+    } 
+    # filter to only include metadata before condition
+    metadata_temp = metadata_temp[metadata_temp$time_to_condition>0,]
+    metadata_temp$condition = rep(NA,nrow(metadata_temp))
+    # now divide into case and control
+    if(window == "1month") {
+      metadata_temp$condition[metadata_temp$time_to_condition<=30] = 1
+      metadata_temp$condition[metadata_temp$time_to_condition>30] = 0
+    } else if(window == "1month-2month") {
+      metadata_temp$condition[metadata_temp$time_to_condition>=30 & metadata_temp$time_to_condition <= 60] = 1
+      metadata_temp$condition[metadata_temp$time_to_condition>60] = 0
+    } else if(window == "2month") {
+      metadata_temp$condition[metadata_temp$time_to_condition<=60] = 1
+      metadata_temp$condition[metadata_temp$time_to_condition>60] = 0
+    } else if(window == "2month-3month") {
+      metadata_temp$condition[metadata_temp$time_to_condition>=60 & metadata_temp$time_to_condition <= 90] = 1
+      metadata_temp$condition[metadata_temp$time_to_condition>90] = 0
+    } else if(window == "3month") {
+      metadata_temp$condition[metadata_temp$time_to_condition<=90] = 1
+      metadata_temp$condition[metadata_temp$time_to_condition>90] = 0
+    }
+    metadata_temp = metadata_temp[!is.na(metadata_temp$condition),]
+    geneName = make.names(geneName)
+    # get all significant genes so far in any model
+    abundance_data_temp = abundance_data[geneName,]
+
+    # now do ttests but stratify by 6 months intervals
+    all_times = sapply(0:11, function(x) {
+      start_times1 = 0 + (183*x)
+      start_times2 = 183 + (183*x)
+      return(c(start_times1,start_times2))
+    })
+    all_time_labels = sapply(0:11, function(x) {
+      start_times1 = 0 + (0.5*x)
+      start_times1 = paste(start_times1,"years",sep="")
+      start_times2 = 0.5 + (0.5*x)
+      start_times2 = paste(start_times2,"years",sep="")
+      start_time_labels = paste(start_times1,start_times2,sep="-")
+      return(start_time_labels)
+    })
+
+    all_times = t(all_times)
+    colnames(all_times) = c("start_day","end_day")
+    rownames(all_times) = all_time_labels
+    
+    library(lmerTest)
+    abundance_data_temp_avg_filter_all_times = lapply(1:nrow(all_times), function(mytimes) {
+      time_begin = all_times[mytimes,1]
+      time_end = all_times[mytimes,2]
+      metadata_temp_strat = metadata_temp[metadata_temp$age_at_collection >=time_begin & metadata_temp$age_at_collection<time_end,]
+      if(nrow(metadata_temp_strat)>0) {
+        samples_to_keep = intersect(colnames(abundance_data_temp),metadata_temp_strat$Run)
+        abundance_data_temp_ordered = abundance_data_temp[,match(samples_to_keep,colnames(abundance_data_temp)),drop=FALSE]
+        metadata_temp_strat = metadata_temp_strat[match(samples_to_keep,metadata_temp_strat$Run),]
+        metadata_temp_strat$maskid2 = paste(metadata_temp_strat$maskid,metadata_temp_strat$condition,sep="_")
+        
+        # average abundance data
+        colnames(abundance_data_temp_ordered) = metadata_temp_strat$maskid2
+        abundance_data_temp_ordered$name = rownames(abundance_data_temp_ordered)
+        abundance_data_temp_ordered = as.data.table(abundance_data_temp_ordered)
+        abundance_data_temp_melt = data.table::melt(abundance_data_temp_ordered,id.vars=c("name"))
+        abundance_data_temp_avg = abundance_data_temp_melt[,mean(value),by=variable]
+        abundance_data_temp_avg = as.data.frame(abundance_data_temp_avg)
+        abundance_data_temp_avg$condition = sapply(strsplit(as.character(abundance_data_temp_avg$variable),split="_"), function(x) x[2])
+        abundance_data_temp_avg$condition = as.numeric(abundance_data_temp_avg$condition)
+        abundance_data_temp_avg$subject_orig = sapply(strsplit(as.character(abundance_data_temp_avg$variable),split="_"), function(x) x[1])
+        # get paired subjects
+        subject_counts = table(abundance_data_temp_avg$subject_orig)
+        paired_subjects = names(subject_counts[subject_counts==2])
+        abundance_data_temp_avg_filter = abundance_data_temp_avg[abundance_data_temp_avg$subject_orig%in%paired_subjects,]
+        if(nrow(abundance_data_temp_avg_filter)==0) {
+          return(NA)
+        }
+        abundance_data_temp_avg_filter$age_cat = all_time_labels[mytimes]
+        return(abundance_data_temp_avg_filter)
+      }
+      else {
+        return(NA)
+      }
+    })
+    
+   abundance_data_temp_avg_filter_all_times_df = do.call("rbind", abundance_data_temp_avg_filter_all_times[sapply(abundance_data_temp_avg_filter_all_times,class) != "logical"])
+   abundance_data_temp_avg_filter_all_times_df$V1 = RankNorm(abundance_data_temp_avg_filter_all_times_df$V1)
+   lmer_res = lmerTest::lmer(V1 ~ condition + age_cat + (1|subject_orig),data=abundance_data_temp_avg_filter_all_times_df)
+   singular_fit = NA
+    if(isSingular(lmer_res)) {
+      singular_fit = 1
+    } else {
+      singular_fit = 0
+    }
+   condition_details = coef(summary(lmer_res))["condition",]
+   condition_details = c(condition_details,geneName=geneName,model_name=model_name)
+   return(condition_details)
+  })
+  
+  lmer_results_list_df = do.call("rbind",lmer_results_list)
+  lmer_results_list_df = as.data.frame(lmer_results_list_df)
+  lmer_results_list_df[,1] = as.numeric(lmer_results_list_df[,1])
+  lmer_results_list_df[,2] = as.numeric(lmer_results_list_df[,2])
+  lmer_results_list_df[,3] = as.numeric(lmer_results_list_df[,3])
+  lmer_results_list_df[,4] = as.numeric(lmer_results_list_df[,4])
+  lmer_results_list_df[,5] = as.numeric(lmer_results_list_df[,5])
+  colnames(lmer_results_list_df)[2] = c("Std.Error")
+  colnames(lmer_results_list_df)[4] = c("tvalue")
+  colnames(lmer_results_list_df)[5] = c("pvalue")
+  lmer_results_list_df = lmer_results_list_df[!is.na(lmer_results_list_df$pvalue),]
+  lmer_results_list_df$BH = p.adjust(lmer_results_list_df[,5],method="BH")
+  lmer_results_list_df$BY = p.adjust(lmer_results_list_df[,5],method="BY")
+  lmer_results_list_df_sig = lmer_results_list_df[lmer_results_list_df$BH < 0.05,]
+  return(lmer_results_list_df_sig)
+}
+
+pathway_0.9_train_test_age_stratified_mat2 = get_sig_genes_age_stratified_v2(abundance_type="pathway",gene_model=pathway_0.9_train_test_sig_genes)
+write.csv(pathway_0.9_train_test_age_stratified_mat2,file="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/pathway_0.9_train_test_age_stratified_mat2.csv",row.names = FALSE)
+
+pathway_0.3_train_test_age_stratified_mat2 = get_sig_genes_age_stratified_v2(abundance_type="pathway",gene_model=pathway_0.3_train_test_sig_genes)
+write.csv(pathway_0.3_train_test_age_stratified_mat2,file="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/pathway_0.3_train_test_age_stratified_mat2.csv",row.names = FALSE)
+
+species_0.3_train_test_age_stratified_mat2 = get_sig_genes_age_stratified_v2(abundance_type="species",gene_model=species_0.3_train_test_sig_genes)
+write.csv(species_0.3_train_test_age_stratified_mat2,file="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/species_0.3_train_test_age_stratified_mat2.csv",row.names = FALSE)
+
+
+
+
+get_sig_genes_age_stratified_v3 = function(abundance_type,gene_model) {
+  metadata = read.csv('/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/teddy_metadata_20190821_with_GRS2.csv')
+  # don't include metadata we don't have GRS scores for
+  metadata = metadata[!is.na(metadata$GRS_score),]
+  # also only include samples we have abundance data for
+  abundance_samples = read.table("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/sample_we_have_abundance_data_for.txt",header=FALSE)
+  abundance_samples = abundance_samples[,1]
+  abundance_metadata_samples = intersect(metadata$Run,abundance_samples)
+  metadata = metadata[match(abundance_metadata_samples,metadata$Run),]
+  metadata$num_autoantibody_ever = apply(metadata[,c("age_first_MIAA","age_first_GAD","age_first_IA2A")], 1, function(x) sum(!is.na(x)))
+  metadata$sero2 = metadata$num_autoantibody_ever>=2
+  
+  metadata_temp_healthy = metadata[metadata$t1d_sero_control == "control",]
+  
+  gene_model$condition = sapply(strsplit(gene_model$model,split="-"), function(my_temp_list) {
+    beggin_remove = min(grep("month",my_temp_list))
+    return(paste(my_temp_list[-seq(beggin_remove,length(my_temp_list))],collapse="-"))
+  })
+  gene_model$age = sapply(strsplit(gene_model$model,split="-"), function(my_temp_list) {
+    beggin_remove = grep("month",my_temp_list)
+    month_parts = my_temp_list[beggin_remove]
+    month_parts = gsub("_before_vs_far_from_condition_subject_level","",month_parts)
+    return(paste(month_parts,collapse="-"))
+  })
+  gene_model$proportion_train = sapply(strsplit(gene_model$model,split="_proportion_train_"), function(my_temp_list) {
+    train_prop = strsplit(my_temp_list[2],split="_")[[1]][1]
+    return(train_prop)
+  })
+  if(length(-grep("serconverters_or_T1D",gene_model$condition))>0) {
+    gene_model = gene_model[-grep("serconverters_or_T1D",gene_model$condition),] 
+  }
+  if(abundance_type == "species") {
+    abundance_data = fread("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/humann_analysis/TEDDY_species_abundances.tsv",sep="\t",header = TRUE,data.table = FALSE)
+    rownames(abundance_data) = abundance_data[,1]
+    abundance_data = abundance_data[,-1]
+  } else if(abundance_type == "pathway") {
+    abundance_data = fread("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/humann_analysis/TEDDY_pathabundance-cpm.tsv",sep="\t",header=TRUE,data.table = FALSE)
+    rownames(abundance_data) = abundance_data[,1]
+    abundance_data = abundance_data[,-1]
+    colnames(abundance_data) = gsub("_human_free_Abundance","",colnames(abundance_data))
+  }
+  rownames(abundance_data) = make.names(rownames(abundance_data))
+
+  lmer_results_list = lapply(1:nrow(gene_model), function(myrow_index) {
+    myrow = unlist(gene_model[myrow_index,])
+    geneName = myrow[2]
+    model_name = myrow[1]
+    condtion = myrow["condition"]
+    window = myrow["age"]
+    if(condtion == "healthy_pre-GAD") {
+      metadata_temp = metadata[!is.na(metadata$age_first_GAD),]
+      metadata_temp$time_to_condition = metadata_temp$age_first_GAD - metadata_temp$age_at_collection
+    } else if(condtion == "healthy_pre-sero") {
+      metadata_temp = metadata[metadata$sero2 ==TRUE,]
+      metadata_temp$time_to_condition = metadata_temp$age_mult_persist - metadata_temp$age_at_collection
+    } else if(condtion == "healthy_pre-IA2A") {
+      metadata_temp = metadata[!is.na(metadata$age_first_IA2A),]
+      metadata_temp$time_to_condition = metadata_temp$age_first_IA2A - metadata_temp$age_at_collection
+    } else if(condtion == "healthy_pre-t1d") {
+      metadata_temp = metadata[!is.na(metadata$age_t1d),]
+      metadata_temp$time_to_condition = metadata_temp$age_t1d - metadata_temp$age_at_collection
+    } else if(condtion == "healthy_pre-MIAA") {
+      metadata_temp = metadata[!is.na(metadata$age_first_MIAA),]
+      metadata_temp$time_to_condition = metadata_temp$age_first_MIAA - metadata_temp$age_at_collection
+    } 
+    # filter to only include metadata before condition
+    metadata_temp = metadata_temp[metadata_temp$time_to_condition>0,]
+    metadata_temp$condition = rep(NA,nrow(metadata_temp))
+    # now divide into case and control
+    if(window == "1month") {
+      metadata_temp$condition[metadata_temp$time_to_condition<=30] = 1
+      metadata_temp$condition[metadata_temp$time_to_condition>30] = 0
+    } else if(window == "1month-2month") {
+      metadata_temp$condition[metadata_temp$time_to_condition>=30 & metadata_temp$time_to_condition <= 60] = 1
+      metadata_temp$condition[metadata_temp$time_to_condition>60] = 0
+    } else if(window == "2month") {
+      metadata_temp$condition[metadata_temp$time_to_condition<=60] = 1
+      metadata_temp$condition[metadata_temp$time_to_condition>60] = 0
+    } else if(window == "2month-3month") {
+      metadata_temp$condition[metadata_temp$time_to_condition>=60 & metadata_temp$time_to_condition <= 90] = 1
+      metadata_temp$condition[metadata_temp$time_to_condition>90] = 0
+    } else if(window == "3month") {
+      metadata_temp$condition[metadata_temp$time_to_condition<=90] = 1
+      metadata_temp$condition[metadata_temp$time_to_condition>90] = 0
+    }
+    metadata_temp = metadata_temp[!is.na(metadata_temp$condition),]
+    geneName = make.names(geneName)
+    # get all significant genes so far in any model
+    abundance_data_temp = abundance_data[geneName,]
+    common_sample_name= intersect(colnames(abundance_data_temp),metadata_temp$Run)
+    abundance_data_temp_ordered = abundance_data_temp[,common_sample_name]
+    metadata_temp_ordered = metadata_temp[match(common_sample_name,metadata_temp$Run),]
+    metadata_temp_ordered$abundance = as.numeric(abundance_data_temp_ordered)
+   lmer_res = lmerTest::lmer(abundance ~ condition + age_at_collection + (1|maskid),data=metadata_temp_ordered)
+   
+   singular_fit = NA
+    if(isSingular(lmer_res)) {
+      singular_fit = 1
+    } else {
+      singular_fit = 0
+    }
+    condition_details = coef(summary(lmer_res))["condition",]
+    condition_details = c(condition_details,geneName=geneName,model_name=model_name)
+    return(condition_details)
+  })
+  lmer_results_list_df = do.call("rbind",lmer_results_list)
+  lmer_results_list_df = as.data.frame(lmer_results_list_df)
+  lmer_results_list_df[,1] = as.numeric(lmer_results_list_df[,1])
+  lmer_results_list_df[,2] = as.numeric(lmer_results_list_df[,2])
+  lmer_results_list_df[,3] = as.numeric(lmer_results_list_df[,3])
+  lmer_results_list_df[,4] = as.numeric(lmer_results_list_df[,4])
+  lmer_results_list_df[,5] = as.numeric(lmer_results_list_df[,5])
+  colnames(lmer_results_list_df)[2] = c("Std.Error")
+  colnames(lmer_results_list_df)[4] = c("tvalue")
+  colnames(lmer_results_list_df)[5] = c("pvalue")
+  lmer_results_list_df = lmer_results_list_df[!is.na(lmer_results_list_df$pvalue),]
+  lmer_results_list_df$BH = p.adjust(lmer_results_list_df[,5],method="BH")
+  lmer_results_list_df$BY = p.adjust(lmer_results_list_df[,5],method="BY")
+  lmer_results_list_df_sig = lmer_results_list_df[lmer_results_list_df$BH < 0.05,]
+  return(lmer_results_list_df_sig)
+}
+library(lmerTest)
+pathway_0.9_train_test_age_stratified_mat3 = get_sig_genes_age_stratified_v3(abundance_type="pathway",gene_model=pathway_0.9_train_test_sig_genes)
+
+pathway_0.3_train_test_age_stratified_mat3 = get_sig_genes_age_stratified_v3(abundance_type="pathway",gene_model=pathway_0.3_train_test_sig_genes)
+
+species_0.3_train_test_age_stratified_mat3 = get_sig_genes_age_stratified_v3(abundance_type="species",gene_model=species_0.3_train_test_sig_genes)
+
+```
+
+
+###OK what we are going to do is do the same thing with the mixed effect model above but with every single gene
+
+```{r}
+library(data.table)
+library(lmerTest)
+library(RNOmni)
+library(parallel)
+
+species_abundance_data = fread("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/humann_analysis/TEDDY_species_abundances.tsv",sep="\t",header = TRUE,data.table = FALSE)
+rownames(species_abundance_data) = species_abundance_data[,1]
+species_abundance_data = species_abundance_data[,-1]
+
+
+abundance_data_pathway = fread("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/humann_analysis/TEDDY_pathabundance-cpm.tsv",sep="\t",header=TRUE,data.table = FALSE)
+rownames(abundance_data_pathway) = abundance_data_pathway[,1]
+abundance_data_pathway = abundance_data_pathway[,-1]
+colnames(abundance_data_pathway) = gsub("_human_free_Abundance","",colnames(abundance_data_pathway))
+
+get_sig_genes_age_stratified_v3 = function(abundance_type,condition,window_size,cutoff,abundance_data,proportion_train) {
+  metadata = read.csv('/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/teddy_metadata_20190821_with_GRS2.csv')
+  # don't include metadata we don't have GRS scores for
+  metadata = metadata[!is.na(metadata$GRS_score),]
+  # also only include samples we have abundance data for
+  abundance_samples = read.table("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/sample_we_have_abundance_data_for.txt",header=FALSE)
+  abundance_samples = abundance_samples[,1]
+  abundance_metadata_samples = intersect(metadata$Run,abundance_samples)
+  metadata = metadata[match(abundance_metadata_samples,metadata$Run),]
+  metadata$num_autoantibody_ever = apply(metadata[,c("age_first_MIAA","age_first_GAD","age_first_IA2A")], 1, function(x) sum(!is.na(x)))
+  metadata$sero2 = metadata$num_autoantibody_ever>=2
+  # now select samples from metadata
+  if(condition == "GAD") {
+    metadata_temp = metadata[!is.na(metadata$age_first_GAD),]
+    metadata_temp$time_to_condition = metadata_temp$age_first_GAD - metadata_temp$age_at_collection
+  } else if(condition == "sero") {
+    metadata_temp = metadata[metadata$sero2 ==TRUE,]
+    metadata_temp$time_to_condition = metadata_temp$age_mult_persist - metadata_temp$age_at_collection
+  } else if(condition == "IA2A") {
+    metadata_temp = metadata[!is.na(metadata$age_first_IA2A),]
+    metadata_temp$time_to_condition = metadata_temp$age_first_IA2A - metadata_temp$age_at_collection
+  } else if(condition == "t1d") {
+    metadata_temp = metadata[!is.na(metadata$age_t1d),]
+    metadata_temp$time_to_condition = metadata_temp$age_t1d - metadata_temp$age_at_collection
+  } else if(condition == "MIAA") {
+    metadata_temp = metadata[!is.na(metadata$age_first_MIAA),]
+    metadata_temp$time_to_condition = metadata_temp$age_first_MIAA - metadata_temp$age_at_collection
+  } 
+  # filter to only include metadata before condition
+  metadata_temp = metadata_temp[metadata_temp$time_to_condition>0,]
+  metadata_temp$condition = rep(NA,nrow(metadata_temp))
+  # now divide into case and control
+  if(window_size == "1month") {
+    metadata_temp$condition[metadata_temp$time_to_condition<=30] = 1
+    metadata_temp$condition[metadata_temp$time_to_condition>30] = 0
+  } else if(window_size == "1month-2month") {
+    metadata_temp$condition[metadata_temp$time_to_condition>=30 & metadata_temp$time_to_condition <= 60] = 1
+    metadata_temp$condition[metadata_temp$time_to_condition>60] = 0
+  } else if(window_size == "2month") {
+    metadata_temp$condition[metadata_temp$time_to_condition<=60] = 1
+    metadata_temp$condition[metadata_temp$time_to_condition>60] = 0
+  } else if(window_size == "2month-3month") {
+    metadata_temp$condition[metadata_temp$time_to_condition>=60 & metadata_temp$time_to_condition <= 90] = 1
+    metadata_temp$condition[metadata_temp$time_to_condition>90] = 0
+  } else if(window_size == "3month") {
+    metadata_temp$condition[metadata_temp$time_to_condition<=90] = 1
+    metadata_temp$condition[metadata_temp$time_to_condition>90] = 0
+  }
+  metadata_temp = metadata_temp[!is.na(metadata_temp$condition),]
+  
+  metadata_temp_subject_only = unique(metadata_temp[,c("maskid","condition")])
+  metadata_temp_subject_only$condition = as.factor(metadata_temp_subject_only$condition)
+  
+  trainIndex <- createDataPartition(metadata_temp_subject_only$condition, p = as.numeric(proportion_train), 
+                                    list = FALSE, 
+                                    times = 1)
+  train_subjects = metadata_temp_subject_only[trainIndex,"maskid"]
+  test_subjects = metadata_temp_subject_only[-trainIndex,"maskid"]
+
+  run_lmer = function(metadata2,abundance_data2,subjects) {
+    metadata2 = metadata2[metadata2$maskid%in%subjects,]
+    samples_in_both = intersect(metadata2$Run,colnames(abundance_data2))
+    abundance_data2 = abundance_data2[,match(samples_in_both,colnames(abundance_data2))]
+    metadata2 = metadata2[match(samples_in_both,metadata2$Run),]
+    # filter to only include genes with proportion 
+    percent_over_zero = (rowSums(abundance_data2>0)/ncol(abundance_data2)) * 100
+    abundance_data2 = abundance_data2[percent_over_zero> cutoff,]
+    # now normalize
+    abundance_data_norm = apply(abundance_data2,1, function(x) RankNorm(x))
+
+    lmer_results = mclapply(1:ncol(abundance_data_norm), function(myindex) {
+      abundance_col = abundance_data_norm[,myindex]
+      metadata2$abundance = abundance_col
+      lmer_res = lmerTest::lmer(abundance ~ condition + age_at_collection + (1|maskid),data=metadata2)
+      singular_fit = NA
+      if(isSingular(lmer_res)) {
+        singular_fit = 1
+      } else {
+        singular_fit = 0
+      }
+      condition_details = coef(summary(lmer_res))["condition",]
+      condition_details = c(condition_details,singular_fit=singular_fit)
+      return(condition_details)
+    },mc.cores=5)
+    lmer_results = do.call("rbind",lmer_results)
+    colnames(lmer_results) = c("Estimate","Std.Error","df","tvalue","pvalue","singular_fit")
+    lmer_results = as.data.frame(lmer_results)
+    rownames(lmer_results) = colnames(abundance_data_norm)
+    lmer_results$BH = p.adjust(lmer_results$pvalue,method="BH")
+    lmer_results$BY = p.adjust(lmer_results$pvalue,method="BY")
+    lmer_results = lmer_results[order(lmer_results$pvalue),]
+    lmer_results = lmer_results[lmer_results$BY < 0.05,]
+    return(lmer_results)
+  }
+  train_lmer_results = run_lmer(metadata2=metadata_temp,abundance_data2=abundance_data,subjects=train_subjects)
+  test_lmer_results = run_lmer(metadata2=metadata_temp,abundance_data2=abundance_data,subjects=test_subjects)
+  return(list(train_lmer_results,test_lmer_results))
+}
+
+combos_df = expand.grid(c("species","pathway"), c("t1d","sero","MIAA","IA2A","GAD"), c("1month","1month-2month","2month","2month-3month","3month"),c(0.66,0.5))
+
+library(parallel)
+all_lmer_res = apply(combos_df, 1, function(myrow) {
+  print(myrow)
+  i = myrow[1]
+  k = myrow[2]
+  j = myrow[3]
+  l = myrow[4]
+  if(i == "species") {
+    lmer_all_results = get_sig_genes_age_stratified_v3(abundance_type=i,condition=k,window_size=j,cutoff=30,abundance_data=species_abundance_data,proportion_train = l)
+  } else {
+    lmer_all_results = get_sig_genes_age_stratified_v3(abundance_type=i,condition=k,window_size=j,cutoff=30,abundance_data=abundance_data_pathway,proportion_train=l)
+  }
+  return(list(myrow,lmer_all_results))
+})
+
+saveRDS(all_lmer_res,"/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/mixed_effect_model_case_only_analysis_species_pathway.rds")
+
+all_lmer_res_sig = lapply(all_lmer_res, function(x) {
+  params = x[[1]]
+  train_res = x[[2]][[1]]
+  test_res = x[[2]][[2]]
+  common_features = intersect(rownames(train_res),rownames(test_res))
+  return(common_features)
+})
+names(all_lmer_res_sig) = lapply(all_lmer_res, function(x) paste(x[[1]],collapse="_"))
+all_lmer_res_sig = all_lmer_res_sig[sapply(all_lmer_res_sig,length)>0]
+```
+
+
+#Now get negative controls
+
+
+```{r}
+library(data.table)
+library(RNOmni)
+library(lmerTest)
+
+
+# first get list of sig gene
+all_lmer_res = readRDS("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/mixed_effect_model_case_only_analysis_species_pathway.rds")
+
+all_lmer_res_sig = lapply(all_lmer_res, function(x) {
+  params = x[[1]]
+  train_res = x[[2]][[1]]
+  test_res = x[[2]][[2]]
+  common_features = intersect(rownames(train_res),rownames(test_res))
+  return(common_features)
+})
+names(all_lmer_res_sig) = lapply(all_lmer_res, function(x) paste(x[[1]],collapse="_"))
+all_lmer_res_sig = all_lmer_res_sig[sapply(all_lmer_res_sig,length)>0]
+
+# create data frame
+all_lmer_res_sig_df = do.call("rbind",lapply(1:length(all_lmer_res_sig), function(x) {
+  names_model = names(all_lmer_res_sig)[x]
+  genes = all_lmer_res_sig[[x]]
+  temp_df = data.frame(model=rep(names_model,length(genes)),gene=genes)
+  return(temp_df)
+}))
+
+all_models = strsplit(all_lmer_res_sig_df$model,split="_")
+
+all_lmer_res_sig_df$condition = sapply(all_models,function(x) x[2])
+all_lmer_res_sig_df$age = sapply(all_models,function(x) x[3])
+all_lmer_res_sig_df$proportion_train = sapply(all_models,function(x) x[4])
+all_lmer_res_sig_df$abundance_type = sapply(all_models,function(x) x[1])
+
+all_lmer_res_sig_df_split = split(all_lmer_res_sig_df,all_lmer_res_sig_df$abundance_type)
+
+
+get_negative_genes = function(gene_model) {
+  abundance_type = unique(gene_model$abundance_type)
+
+  if(length(-grep("serconverters_or_T1D",gene_model$condition))>0) {
+    gene_model = gene_model[-grep("serconverters_or_T1D",gene_model$condition),] 
+  }
+
+  geneNames = gene_model$gene
+  metadata = read.csv('/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/teddy_metadata_20190821_with_GRS2.csv')
+  # don't include metadata we don't have GRS scores for
+  metadata = metadata[!is.na(metadata$GRS_score),]
+  # also only include samples we have abundance data for
+  abundance_samples = read.table("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/sample_we_have_abundance_data_for.txt",header=FALSE)
+  abundance_samples = abundance_samples[,1]
+  abundance_metadata_samples = intersect(metadata$Run,abundance_samples)
+  metadata = metadata[match(abundance_metadata_samples,metadata$Run),]
+  metadata_healthy = metadata[is.na(metadata$age_first_MIAA) & is.na(metadata$age_first_GAD) & is.na(metadata$age_first_IA2A) & is.na(metadata$age_t1d),]
+  
+  
+  if(abundance_type == "species") {
+    abundance_data = fread("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/humann_analysis/TEDDY_species_abundances.tsv",sep="\t",header = TRUE,data.table = FALSE)
+    rownames(abundance_data) = abundance_data[,1]
+    abundance_data = abundance_data[,-1]
+    myfiles = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4",pattern="species_bootstrap_ttest_results_round2.rds",full.names = TRUE,recursive = TRUE)
+  } else if(abundance_type == "pathway") {
+    abundance_data = fread("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/humann_analysis/TEDDY_pathabundance-cpm.tsv",sep="\t",header=TRUE,data.table = FALSE)
+    rownames(abundance_data) = abundance_data[,1]
+    abundance_data = abundance_data[,-1]
+    colnames(abundance_data) = gsub("_human_free_Abundance","",colnames(abundance_data))
+  }
+  rownames(abundance_data) = make.names(rownames(abundance_data))
+  geneNames = make.names(geneNames)
+  abundance_data = abundance_data[geneNames,]
+  # get samples in both abundance data and metadata
+  samples_in_both = intersect(colnames(abundance_data),metadata_healthy$Run)
+  abundance_data = abundance_data[,samples_in_both]
+  metadata_healthy = metadata_healthy[match(samples_in_both,metadata_healthy$Run),]
+  
+  
+  boot_function = function(window_size,myseed,mygene) {
+    mygene = make.names(mygene)
+  # get all significant genes so far in any model
+    # choose a random age in the metadata
+    set.seed(myseed)
+    # lets make sure that we sample something large enough so we have a sample less than, to compare to
+    min_age_to_sample = min(metadata_healthy$age_at_collection) + window_size
+    sampled_age = sample(metadata_healthy$age_at_collection[metadata_healthy$age_at_collection>min_age_to_sample],size=1)
+    min_age = sampled_age-(window_size/2)
+    max_age = sampled_age+(window_size/2)
+    indexes_in_window = metadata_healthy$age_at_collection >= min_age & metadata_healthy$age_at_collection <= max_age
+    metadata_in_window = metadata_healthy[which(indexes_in_window),,drop=FALSE]
+    metadata_out_window = metadata_healthy[metadata_healthy$age_at_collection <min_age,,drop=FALSE]
+    metadata_in_window$condition = 1
+    metadata_out_window$condition = 0
+    metadata_in_vs_out = rbind(metadata_in_window,metadata_out_window)
+    abundance_data_ordered = abundance_data[mygene,metadata_in_vs_out$Run]
+    metadata_in_vs_out$abundance = RankNorm(as.numeric(abundance_data_ordered[1,]))
+    lmer_res = lmerTest::lmer(abundance ~ condition + (1|maskid),data=metadata_in_vs_out)
+    singular_fit = NA
+    if(isSingular(lmer_res)) {
+      singular_fit = 1
+    } else {
+      singular_fit = 0
+    }
+    condition_details = coef(summary(lmer_res))["condition",]
+    condition_details = c(condition_details,singular_fit=singular_fit)
+    if(singular_fit == 1) {
+      return(NA)
+    } else {
+      return(condition_details[5])
+    }
+  }
+  
+  all_pvalues = sapply(1:nrow(gene_model), function(myindex) {
+    myrow = unlist(gene_model[myindex,])
+    mygene = myrow["gene"]
+    if(myrow["age"] == "2month") {
+      window_size = 60
+    } else if(myrow["age"] == "3month") {
+      window_size = 90
+    } else {
+      window_size = 30
+    }
+    boot_res_one_gene = sapply(1:100,function(x) {
+      boot_res = boot_function(window_size=window_size,myseed=x,mygene = mygene) 
+      return(boot_res)
+    })
+    boot_res_one_gene_noNA = boot_res_one_gene[!is.na(boot_res_one_gene)]
+    proportion_0.05 = sum(boot_res_one_gene_noNA < 0.05)/length(boot_res_one_gene_noNA)
+    return(c(myrow,proportion_sig=proportion_0.05))
+  })
+  all_pvalues = t(all_pvalues)
+  return(all_pvalues)
+}
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#Now get significant genes by coefs
+
+```{r}
+
+library(RNOmni)
+library(glmnet)
+library(ggplot2)
+
+create_coef_matrix = function(input_list,output,phenotype) {
+  if(length(grep("serconverters_or_T1D",names(input_list)))>0) {
+    input_list = input_list[-grep("serconverters_or_T1D",names(input_list))] 
+  }
+  if(phenotype == "MIAA") {
+    input_list = input_list[grep("MIAA",names(input_list))]
+  } else if(phenotype == "GAD") {
+    input_list = input_list[grep("GAD",names(input_list))]
+  } else if(phenotype == "IA2A") {
+    input_list = input_list[grep("IA2A",names(input_list))]
+  } else if(phenotype == "sero") {
+    input_list = input_list[grep("healthy_pre-sero",names(input_list))]
+  } else if(phenotype == "T1D") {
+    input_list = input_list[grep("healthy_pre-t1d",names(input_list))]
+  }
+  all_sig_genes = unique(unlist(lapply(input_list, rownames)))
+  all_sig_genes_coef_df = do.call("cbind",lapply(input_list, function(mydf) {
+    mydf[match(all_sig_genes,rownames(mydf)),"coef"]
+  }))
+  rownames(all_sig_genes_coef_df) =all_sig_genes 
+  colnames(all_sig_genes_coef_df) = names(input_list)
+  sig_gene_sum_stats = apply(all_sig_genes_coef_df, 1, function(myrow) {
+    num_sig_in = sum(!is.na(myrow))
+    if(phenotype == "all") {
+      prop_sig_in = num_sig_in/50
+    } else {
+      prop_sig_in = num_sig_in/10 
+    }
+    mean_coef = mean(myrow,na.rm=TRUE)
+    return(c(num_sig_in,prop_sig_in,mean_coef))
+  })
+  sig_gene_sum_stats = t(sig_gene_sum_stats)
+  colnames(sig_gene_sum_stats) = c("number","prop","coef")
+  sig_gene_sum_stats = as.data.frame(sig_gene_sum_stats)
+  sig_gene_sum_stats = sig_gene_sum_stats[order(sig_gene_sum_stats$prop,decreasing = TRUE),]
+  sig_gene_sum_stats$name = rownames(sig_gene_sum_stats)
+  sig_gene_sum_stats$name = factor(sig_gene_sum_stats$name,levels=sig_gene_sum_stats$name)
+  write.csv(sig_gene_sum_stats,output)
+  if(nrow(sig_gene_sum_stats)>25) {
+    myplot = ggplot(sig_gene_sum_stats[1:25,],aes(x=name,y=prop,fill=coef)) + geom_bar(stat="identity") + theme_classic() + coord_flip() + geom_text(aes(label=number),hjust = -0.1)
+  } else {
+    myplot = ggplot(sig_gene_sum_stats,aes(x=name,y=prop,fill=coef)) + geom_bar(stat="identity") + theme_classic() + coord_flip() + geom_text(aes(label=number),hjust = -0.1)
+  }
+  pdf(gsub(".csv",".pdf",output),width=10)
+  print(myplot)
+  dev.off()
+  return(sig_gene_sum_stats)
+}
+
+library(pheatmap)
+build_big_matrix = function(matList,output) {
+  # get all features in each mat list
+  
+  total_features = rownames(matList[["all"]])
+  
+  big_prop_mat = do.call("cbind",lapply(matList, function(mydf) {
+    proportion_feature = mydf[match(total_features,rownames(mydf)),"prop"]
+    return(proportion_feature)
+  }))
+  
+  #my_sample_col <- data.frame(feature=total_features, coef=matList[["all"]]$coef)
+  my_sample_col <- data.frame(feature=total_features)
+  rownames(my_sample_col) = my_sample_col[,1]
+  my_sample_col = my_sample_col[,-1,drop=FALSE]
+
+  big_prop_mat[is.na(big_prop_mat)] = 0
+  pdf(output)
+  rownames(big_prop_mat) = total_features
+  pheatmap(big_prop_mat,fontsize_row = 5)
+  dev.off()
+}
+
+run_models = function(abundance_type,output_file,sig_gene_file) {
+  sig_gene_df = read.csv(sig_gene_file)
+  sig_gene_df_model_split = split(sig_gene_df,sig_gene_df$model)
+  input_final_list = lapply(sig_gene_df_model_split, function(mydf) {
+    my_dirname = unique(mydf$model)
+    my_sig_genes = mydf$geneName
+    my_sig_genes = make.names(my_sig_genes)
+    train_metadata_name = paste("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/",my_dirname,"_train_metadata.csv",sep="")
+    test_metadata_name = paste("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/",my_dirname,"_test_metadata.csv",sep="")
+    train_metadata = read.csv(train_metadata_name)
+    test_metadata = read.csv(test_metadata_name)
+    all_metadata = rbind(train_metadata,test_metadata)
+    if(abundance_type== "pathway") {
+      train_subject_level_abundance_file = paste("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/",my_dirname,"/",basename(my_dirname),"_train_TEDDY_pathabundance-cpm.tsv",sep="")
+      test_subject_level_abundance_file = paste("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/",my_dirname,"/",basename(my_dirname),"_test_TEDDY_pathabundance-cpm.tsv",sep="")
+    } else {
+      train_subject_level_abundance_file = paste("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/",my_dirname,"/",basename(my_dirname),"_train_TEDDY_species_abundances.tsv",sep="")
+      test_subject_level_abundance_file = paste("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/",my_dirname,"/",basename(my_dirname),"_test_TEDDY_species_abundances.tsv",sep="")
+    }
+    train_subject_level_abundance = readRDS(train_subject_level_abundance_file)
+    train_subject_level_abundance = as.data.frame(train_subject_level_abundance)
+    test_subject_level_abundance = readRDS(test_subject_level_abundance_file)
+    test_subject_level_abundance = as.data.frame(test_subject_level_abundance)
+    colnames(train_subject_level_abundance) = make.names(colnames(train_subject_level_abundance))
+    colnames(test_subject_level_abundance) = make.names(colnames(test_subject_level_abundance))
+    common_colnames = c("SubjectID",my_sig_genes)
+    common_colnames = make.names(common_colnames)
+    train_subject_level_abundance = train_subject_level_abundance[,common_colnames]
+    test_subject_level_abundance = test_subject_level_abundance[,common_colnames]
+    all_subject_level_abundance = rbind(train_subject_level_abundance,test_subject_level_abundance)
+    train_subject_level_abundance = train_subject_level_abundance[,common_colnames]
+    test_subject_level_abundance = test_subject_level_abundance[,common_colnames]
+    all_subject_level_abundance = rbind(train_subject_level_abundance,test_subject_level_abundance)
+    # make sure metadata is in same order
+    metadata_abundance_subject_names = intersect(all_metadata$SubjectID,all_subject_level_abundance$SubjectID)
+    all_metadata = all_metadata[match(metadata_abundance_subject_names,all_metadata$SubjectID),]
+    all_subject_level_abundance = all_subject_level_abundance[match(metadata_abundance_subject_names,all_subject_level_abundance$SubjectID),]
+    # now normalize abundance_data
+    rownames(all_subject_level_abundance) = all_subject_level_abundance$SubjectID
+    all_subject_level_abundance = all_subject_level_abundance[,-1,drop=FALSE]
+    all_subject_level_abundance = do.call("cbind",apply(all_subject_level_abundance,2, function(mycol) RankNorm(mycol),simplify=FALSE))
+    if(abundance_type== "pathway") {
+      write.csv(all_subject_level_abundance,file=gsub("_train_TEDDY_pathabundance-cpm.tsv","_all_data_TEDDY_pathway_bundance-cpm_train_test_norm_sig.tsv",train_subject_level_abundance_file))
+    } else {
+      write.csv(all_subject_level_abundance,file=gsub("_train_TEDDY_species_abundances.tsv","_all_data_TEDDY_species_bundance-cpm_train_test_norm_sig.tsv",train_subject_level_abundance_file))
+    }
+    set.seed(123)
+    if(ncol(all_subject_level_abundance)>=2) {
+      cv_output <- cv.glmnet(all_subject_level_abundance, all_metadata$getsCondition, nfolds = 3,family="binomial",parallel=FALSE)
+      best_lam <- cv_output$lambda.min
+      train_coefs = coef(cv_output,s=best_lam)
+      train_coefs = train_coefs[abs(train_coefs[,1])>0,,drop=FALSE]
+      if("(Intercept)"%in%rownames(train_coefs)) {
+        train_coefs = train_coefs[-match("(Intercept)",rownames(train_coefs)),,drop=FALSE]
+      }
+      train_coefs = as.matrix(train_coefs)
+      train_coefs = as.data.frame(train_coefs)
+      colnames(train_coefs) = c("coef")
+      train_coefs$test_type = "lasso"
+      train_coefs = train_coefs[order(abs(train_coefs$coef),decreasing=TRUE),,drop=FALSE]
+      return(train_coefs)
+    } else {
+      metadata_abundance_combined = cbind(all_subject_level_abundance,getsCondition=all_metadata$getsCondition)
+      metadata_abundance_combined = as.data.frame(metadata_abundance_combined)
+      my_formula <- paste0("~",paste(colnames(all_subject_level_abundance), collapse = " + "))
+      my_formula <- as.formula(paste("getsCondition",my_formula,sep=""))
+      model_train_out = glm(my_formula,family=binomial(link='logit'),data=metadata_abundance_combined)
+      mycoef = coef(summary(model_train_out))
+      mycoef = mycoef[-match("(Intercept)",rownames(mycoef)),,drop=FALSE]
+      mycoef_vec = mycoef[,1]
+      names(mycoef_vec) = rownames(mycoef)
+      mycoef_vec = as.data.frame(mycoef_vec)
+      colnames(mycoef_vec) = c("coef")
+      mycoef_vec$test_type = "logistic_regression"
+      mycoef_vec = mycoef_vec[order(abs(mycoef_vec$coef),decreasing=TRUE),,drop=FALSE]
+      return(mycoef_vec)
+    }
+  })
+  names(input_final_list)  = names(sig_gene_df_model_split)
+  input_final_list = input_final_list[sapply(input_final_list,length)>1]
+  saveRDS(input_final_list,output_file)
+  return(input_final_list)
+}
+  
+
+pathway_0.9_sig = run_models(abundance_type="pathway",output_file="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/coef_train_test_results_pathway_0.9.rds",sig_gene_file = "/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/pathway_0.9_train_test_sig_genes.csv")
+pathway_0.9_sig_mat = create_coef_matrix(pathway_0.9_sig,output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/coef_train_test_results_pathway_0.9_matrix.csv",phenotype = "all")
+pathway_0.9_sig_mat_GAD = create_coef_matrix(pathway_0.9_sig,output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/coef_train_test_results_pathway_0.9_GAD_matrix.csv",phenotype = "GAD")
+pathway_0.9_sig_mat_IA2A = create_coef_matrix(pathway_0.9_sig,output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/coef_train_test_results_pathway_0.9_IA2A_matrix.csv",phenotype = "IA2A")
+pathway_0.9_sig_mat_sero = create_coef_matrix(pathway_0.9_sig,output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/coef_train_test_results_pathway_0.9_sero_matrix.csv",phenotype = "sero")
+pathway_0.9_sig_mat_T1D = create_coef_matrix(pathway_0.9_sig,output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/coef_train_test_results_pathway_0.9_t1d_matrix.csv",phenotype = "T1D")
+
+pathway_0.9_sig_mat_list = list(all=pathway_0.9_sig_mat,GAD=pathway_0.9_sig_mat_GAD,IA2=pathway_0.9_sig_mat_IA2A,sero=pathway_0.9_sig_mat_sero,T1D=pathway_0.9_sig_mat_T1D)
+
+build_big_matrix(pathway_0.9_sig_mat_list,output="pathway_0.9_sig_big_mat_output.pdf")
+
+species_0.3_sig = run_models(abundance_type="species",output_file="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/coef_train_test_results_species_0.3.rds",sig_gene_file = "/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/species_0.3_train_test_sig_genes.csv")
+species_0.3_sig_mat = create_coef_matrix(species_0.3_sig,output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/coef_train_test_results_species_0.3_matrix.csv",phenotype = "all")
+species_0.3_sig_mat_MIAA = create_coef_matrix(species_0.3_sig,output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/coef_train_test_results_species_0.3_MIAA_matrix.csv",phenotype = "MIAA")
+species_0.3_sig_mat_GAD = create_coef_matrix(species_0.3_sig,output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/coef_train_test_results_species_0.3_GAD_matrix.csv",phenotype = "GAD")
+species_0.3_sig_mat_IA2A = create_coef_matrix(species_0.3_sig,output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/coef_train_test_results_species_0.3_IA2A_matrix.csv",phenotype = "IA2A")
+species_0.3_sig_mat_sero = create_coef_matrix(species_0.3_sig,output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/coef_train_test_results_species_0.3_sero_matrix.csv",phenotype = "sero")
+species_0.3_sig_mat_T1D = create_coef_matrix(species_0.3_sig,output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/coef_train_test_results_species_0.3_T1D_matrix.csv",phenotype = "T1D")
+
+species_0.3_sig_mat_list = list(all=species_0.3_sig_mat,MIAA=species_0.3_sig_mat_MIAA,GAD=species_0.3_sig_mat_GAD,IA2=species_0.3_sig_mat_IA2A,sero=species_0.3_sig_mat_sero,T1D=species_0.3_sig_mat_T1D)
+
+build_big_matrix(species_0.3_sig_mat_list,output="species_0.3_sig_big_mat_output.pdf")
+
+
+pathway_0.3_sig = run_models(abundance_type="pathway",output_file="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/coef_train_test_results_pathway_0.3.rds",sig_gene_file = "/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/pathway_0.3_train_test_sig_genes.csv")
+pathway_0.3_sig_mat = create_coef_matrix(pathway_0.3_sig,output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/coef_train_test_results_pathway_0.3_matrix.csv",phenotype = "all")
+pathway_0.3_sig_mat_MIAA = create_coef_matrix(pathway_0.3_sig,output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/coef_train_test_results_pathway_0.3_MIAA_matrix.csv",phenotype = "MIAA")
+pathway_0.3_sig_mat_IA2A = create_coef_matrix(pathway_0.3_sig,output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/coef_train_test_results_pathway_0.3_IA2A_matrix.csv",phenotype = "IA2A")
+pathway_0.3_sig_mat_GAD = create_coef_matrix(pathway_0.3_sig,output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/coef_train_test_results_pathway_0.3_GAD_matrix.csv",phenotype = "GAD")
+pathway_0.3_sig_mat_sero = create_coef_matrix(pathway_0.3_sig,output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/coef_train_test_results_pathway_0.3_sero_matrix.csv",phenotype = "sero")
+pathway_0.3_sig_mat_t1d = create_coef_matrix(pathway_0.3_sig,output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/coef_train_test_results_pathway_0.3_t1d_matrix.csv",phenotype = "T1D")
+
+pathway_0.3_sig_mat_list = list(all=pathway_0.3_sig_mat,MIAA=pathway_0.3_sig_mat_MIAA,GAD=pathway_0.3_sig_mat_GAD,IA2=pathway_0.3_sig_mat_IA2A,sero=pathway_0.3_sig_mat_sero,T1D=pathway_0.3_sig_mat_t1d)
+
+build_big_matrix(pathway_0.3_sig_mat_list,output="pathway_0.3_sig_big_mat_output.pdf")
+
+#ok now for seroconversion and T1D lets get the abundance of the clostridia in the models where it is significant
+
+get_abundance_sig_gene_boxplots = function(sig_list,feature,abundance_type,output) {
+  if(length(grep("serconverters_or_T1D",names(sig_list)))>0) {
+    sig_list = sig_list[-grep("serconverters_or_T1D",names(sig_list))]
+  }
+  gene_found_in = do.call("rbind",lapply(sig_list,function(x) x[match(feature,rownames(x)),]))
+  gene_found_in = gene_found_in[!is.na(gene_found_in$coef),]
+  gene_found_in = rownames(gene_found_in)
+  # now get aboundance of feature in each model abundance table
+  if(abundance_type == "pathway") {
+    abundance_files = paste("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/",gene_found_in,"/",gene_found_in,"_all_data_TEDDY_pathway_bundance-cpm_train_test_norm_sig.tsv",sep="")
+  } else {
+    abundance_files = paste("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/",gene_found_in,"/",gene_found_in,"_all_data_TEDDY_species_bundance-cpm_train_test_norm_sig.tsv",sep="")
+  }
+  abundance_model_df = data.frame(gene_found_in,abundance_files)
+  
+  abundance_feature_all_sig_models = apply(abundance_model_df,1, function(myrow) {
+    model_name = myrow[1]
+
+    conditon_model = sapply(strsplit(model_name,split="-"), function(my_temp_list) {
+      beggin_remove = min(grep("month",my_temp_list))
+      return(paste(my_temp_list[-seq(beggin_remove,length(my_temp_list))],collapse="-"))
+    })
+  
+    age_window_model = sapply(strsplit(model_name,split="-"), function(my_temp_list) {
+      beggin_remove = grep("month",my_temp_list)
+      month_parts = my_temp_list[beggin_remove]
+      month_parts = gsub("_before_vs_far_from_condition_subject_level","",month_parts)
+      return(paste(month_parts,collapse="-"))
+    })
+  
+    proportion_train_model = sapply(strsplit(model_name,split="_proportion_train_"), function(my_temp_list) {
+      train_prop = strsplit(my_temp_list[2],split="_")[[1]][1]
+      return(train_prop)
+    })
+
+    abundance_file_temp = myrow[2]
+    abundance_temp_df = read.csv(abundance_file_temp)
+    abundance_temp_df_feature = abundance_temp_df[,c("X",feature)]
+    abundance_temp_df_feature$condition = sapply(strsplit(abundance_temp_df_feature$X,split="_"), function(x) x[2])
+    abundance_temp_df_feature$condition = as.factor(abundance_temp_df_feature$condition)
+    colnames(abundance_temp_df_feature)[2] = "Feature"
+    abundance_temp_df_feature$model_name = model_name
+    abundance_temp_df_feature$phenotype = conditon_model
+    abundance_temp_df_feature$window = age_window_model
+    abundance_temp_df_feature$proportion_train = proportion_train_model
+    return(abundance_temp_df_feature)
+  })
+  abundance_feature_all_sig_models_df = do.call("rbind",abundance_feature_all_sig_models)
+  abundance_feature_all_sig_models_df$phenotype_window_proportion_train = paste(abundance_feature_all_sig_models_df$phenotype,abundance_feature_all_sig_models_df$window,abundance_feature_all_sig_models_df$proportion_train,sep="\n")
+  
+  myplot = ggplot(abundance_feature_all_sig_models_df,aes(x=phenotype_window_proportion_train,y=Feature,color=condition)) + geom_boxplot(outlier.shape = NA) + theme_classic() + geom_jitter(position = position_jitterdodge(0.5)) + ylab("Rank Normalized Abundance")
+  pdf(output,width=20)
+  print(myplot)
+  dev.off()
+  return(abundance_feature_all_sig_models_df)
+}
+
+clostridia_abundance_table = get_abundance_sig_gene_boxplots(sig_list=species_0.3_sig,feature="k__Bacteria.p__Firmicutes.c__Clostridia",abundance_type="species",output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/Clostridia_abundance_all_phenotype.pdf")
+
+enterococcus_faecali_abundance_table = get_abundance_sig_gene_boxplots(sig_list=species_0.3_sig,feature="k__Bacteria.p__Firmicutes.c__Bacilli.o__Lactobacillales.f__Enterococcaceae.g__Enterococcus.s__Enterococcus_faecalis",abundance_type="species",output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/Enterococcus_faecalis_abundance_all_phenotype_all_phenotypes_with_sig_genes.pdf")
+
+
+gamm_glutyml_table = get_abundance_sig_gene_boxplots(sig_list=pathway_0.9_sig,feature="PWY.4041...gamma..glutamyl.cycle",abundance_type="pathway",output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/gamma_glutyml_all_phenotype.pdf")
+
+tRNA_charging_abundance_table = get_abundance_sig_gene_boxplots(sig_list=pathway_0.9_sig,feature="TRNA.CHARGING.PWY..tRNA.charging",abundance_type="pathway",output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/tRNA_charging_abundance_all_phenotype.pdf")
+
+
+#Lets explore this pattern with Enterococcus_faecalis and see what exactly is going on here
+
+draw_boxplot_any_feature_any_phenotype = function(abundance_type,output_file,sig_gene_name,models,output) {
+  input_final_list = lapply(models, function(model_name) {
+    my_dirname = model_name
+    my_sig_genes = sig_gene_name
+    my_sig_genes = make.names(my_sig_genes)
+    train_metadata_name = paste("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/",my_dirname,"_train_metadata.csv",sep="")
+    test_metadata_name = paste("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/",my_dirname,"_test_metadata.csv",sep="")
+    train_metadata = read.csv(train_metadata_name)
+    test_metadata = read.csv(test_metadata_name)
+    all_metadata = rbind(train_metadata,test_metadata)
+    if(abundance_type== "pathway") {
+      train_subject_level_abundance_file = paste("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/",my_dirname,"/",basename(my_dirname),"_train_TEDDY_pathabundance-cpm.tsv",sep="")
+      test_subject_level_abundance_file = paste("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/",my_dirname,"/",basename(my_dirname),"_test_TEDDY_pathabundance-cpm.tsv",sep="")
+    } else {
+      train_subject_level_abundance_file = paste("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/",my_dirname,"/",basename(my_dirname),"_train_TEDDY_species_abundances.tsv",sep="")
+      test_subject_level_abundance_file = paste("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/",my_dirname,"/",basename(my_dirname),"_test_TEDDY_species_abundances.tsv",sep="")
+    }
+    train_subject_level_abundance = readRDS(train_subject_level_abundance_file)
+    train_subject_level_abundance = as.data.frame(train_subject_level_abundance)
+    test_subject_level_abundance = readRDS(test_subject_level_abundance_file)
+    test_subject_level_abundance = as.data.frame(test_subject_level_abundance)
+    colnames(train_subject_level_abundance) = make.names(colnames(train_subject_level_abundance))
+    colnames(test_subject_level_abundance) = make.names(colnames(test_subject_level_abundance))
+    common_colnames = c("SubjectID",my_sig_genes)
+    common_colnames = make.names(common_colnames)
+    train_subject_level_abundance = train_subject_level_abundance[,common_colnames]
+    test_subject_level_abundance = test_subject_level_abundance[,common_colnames]
+    all_subject_level_abundance = rbind(train_subject_level_abundance,test_subject_level_abundance)
+    train_subject_level_abundance = train_subject_level_abundance[,common_colnames]
+    test_subject_level_abundance = test_subject_level_abundance[,common_colnames]
+    all_subject_level_abundance = rbind(train_subject_level_abundance,test_subject_level_abundance)
+    # make sure metadata is in same order
+    metadata_abundance_subject_names = intersect(all_metadata$SubjectID,all_subject_level_abundance$SubjectID)
+    all_metadata = all_metadata[match(metadata_abundance_subject_names,all_metadata$SubjectID),]
+    all_subject_level_abundance = all_subject_level_abundance[match(metadata_abundance_subject_names,all_subject_level_abundance$SubjectID),]
+    # now normalize abundance_data
+    rownames(all_subject_level_abundance) = all_subject_level_abundance$SubjectID
+    all_subject_level_abundance = all_subject_level_abundance[,-1,drop=FALSE]
+    all_subject_level_abundance = do.call("cbind",apply(all_subject_level_abundance,2, function(mycol) RankNorm(mycol),simplify=FALSE))
+    colnames(all_subject_level_abundance) = c("abundance")
+    
+    conditon_model = sapply(strsplit(model_name,split="-"), function(my_temp_list) {
+      beggin_remove = min(grep("month",my_temp_list))
+      return(paste(my_temp_list[-seq(beggin_remove,length(my_temp_list))],collapse="-"))
+    })
+  
+    age_window_model = sapply(strsplit(model_name,split="-"), function(my_temp_list) {
+      beggin_remove = grep("month",my_temp_list)
+      month_parts = my_temp_list[beggin_remove]
+      month_parts = gsub("_before_vs_far_from_condition_subject_level","",month_parts)
+      return(paste(month_parts,collapse="-"))
+    })
+  
+    proportion_train_model = sapply(strsplit(model_name,split="_proportion_train_"), function(my_temp_list) {
+      train_prop = strsplit(my_temp_list[2],split="_")[[1]][1]
+      return(train_prop)
+    })
+    all_subject_level_abundance = as.data.frame(all_subject_level_abundance)
+    all_subject_level_abundance$condition = sapply(strsplit(rownames(all_subject_level_abundance),split="_"), function(x) x[2])
+    all_subject_level_abundance$condition = as.factor(all_subject_level_abundance$condition)
+    all_subject_level_abundance$model_name = model_name
+    all_subject_level_abundance$phenotype = conditon_model
+    all_subject_level_abundance$window = age_window_model
+    all_subject_level_abundance$proportion_train = proportion_train_model
+    return(all_subject_level_abundance)
+  })
+  abundance_feature_all_sig_models_df = do.call("rbind",input_final_list)
+  abundance_feature_all_sig_models_df$phenotype_window_proportion_train = paste(abundance_feature_all_sig_models_df$phenotype,abundance_feature_all_sig_models_df$window,abundance_feature_all_sig_models_df$proportion_train,sep="\n")
+
+  myplot = ggplot(abundance_feature_all_sig_models_df,aes(x=phenotype_window_proportion_train,y=abundance,color=condition)) + geom_boxplot(outlier.shape = NA) + theme_classic() + geom_jitter(position = position_jitterdodge(0.5)) + ylab("Rank Normalized Abundance")
+  pdf(output,width=20)
+  print(myplot)
+  dev.off()
+  return(abundance_feature_all_sig_models_df)
+}
+
+T1D_folder_names = c("healthy_pre-t1d-1month_before_vs_far_from_condition_subject_level-all_HLA_proportion_train_0.5","healthy_pre-t1d-1month_before_vs_far_from_condition_subject_level-all_HLA_proportion_train_0.66","healthy_pre-t1d-1month-2month_before_vs_far_from_condition_subject_level-all_HLA_proportion_train_0.5","healthy_pre-t1d-1month-2month_before_vs_far_from_condition_subject_level-all_HLA_proportion_train_0.66","healthy_pre-t1d-2month_before_vs_far_from_condition_subject_level-all_HLA_proportion_train_0.5","healthy_pre-t1d-2month_before_vs_far_from_condition_subject_level-all_HLA_proportion_train_0.66","healthy_pre-t1d-2month-3month_before_vs_far_from_condition_subject_level-all_HLA_proportion_train_0.5","healthy_pre-t1d-2month-3month_before_vs_far_from_condition_subject_level-all_HLA_proportion_train_0.66","healthy_pre-t1d-3month_before_vs_far_from_condition_subject_level-all_HLA_proportion_train_0.5","healthy_pre-t1d-3month_before_vs_far_from_condition_subject_level-all_HLA_proportion_train_0.66")
+
+Enterococcus_faecalis_abundance_all_phenotype_all_phenotypes_with_sig_genes_allT1D = draw_boxplot_any_feature_any_phenotype(abundance_type="species",sig_gene_name="k__Bacteria.p__Firmicutes.c__Bacilli.o__Lactobacillales.f__Enterococcaceae.g__Enterococcus.s__Enterococcus_faecalis",models=T1D_folder_names,output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/Enterococcus_faecalis_abundance_all_phenotype_all_phenotypes_with_sig_genes_allT1D.pdf")
+
+
+# weird. T1D phenotypes look even better. Lets find out why they are not significant. Maybe I am filtering too hard (not that I would change the filtering steps of course but maybe there is a bug)
+
+#my first hypothesis is that there are too many 0s so the mixed effect model is not fitting well.
+
+#my_genes_files = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/",pattern="_speciesoutput_lmer_feature_selection_results_window_size_adjusted.rds",full.names = TRUE,recursive = TRUE)
+#my_genes_files = my_genes_files[grep("healthy_pre-t1d",my_genes_files)]
+
+# lapply(my_genes_files, function(myrds) {
+#   lme_results = readRDS(myrds)
+#   lme_results$BY = p.adjust(lme_results$pvalue,method='BY')
+#   lme_results = lme_results[lme_results$BY < 0.05,]
+#   e_faecalis_res = lme_results[grep("Enterococcus_faecalis",rownames(lme_results)),]
+#   if(nrow(e_faecalis_res)>0) {
+#     return(TRUE)
+#   } else {
+#     return(FALSE)
+#   }
+# })
+# 
+# my_genes_files_test = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/",pattern=paste("_species","0.3","test","output_lmer_feature_selection_results_window_size_adjusted.rds",sep=""),full.names = TRUE,recursive = TRUE)
+# my_genes_files_test = my_genes_files_test[grep("healthy_pre-t1d",my_genes_files_test)]
+# 
+# lapply(my_genes_files_test, function(myrds) {
+#   lme_results = readRDS(myrds)
+#   lme_results$BY = p.adjust(lme_results$pvalue,method='BY')
+#   lme_results = lme_results[lme_results$BY < 0.05,]
+#   e_faecalis_res = lme_results[grep("Enterococcus_faecalis",rownames(lme_results)),]
+#   if(nrow(e_faecalis_res)>0) {
+#     return(TRUE)
+#   } else {
+#     return(FALSE)
+#   }
+# })
+# # ok. so 2month−3month with prop train 0.5 is not significant enough in train or test. t1d-1month prop train 0.5 not sig in test. 8 still significant through filter 2
+# 
+# # now lets take a look at permutation test 1
+# 
+# my_genes_files = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4/",pattern="species_bootstrap_ttest_results_round1.rds",full.names = TRUE,recursive = TRUE)
+# my_genes_files = my_genes_files[grep("healthy_pre-t1d",my_genes_files)]
+# my_genes_files_test = my_genes_files[grep("0.3test",my_genes_files)]
+# my_genes_files = my_genes_files[-grep("0.3test",my_genes_files)]
+# 
+# lapply(my_genes_files, function(myrds) {
+#   boot1_res = readRDS(myrds)
+#   myrds_pvals = do.call("cbind",lapply(boot1_res, function(mydf) mydf[,1]))
+#   rownames(myrds_pvals) = rownames(boot1_res[[1]])
+#   proportion_sig = rowSums(myrds_pvals<0.05,na.rm = TRUE)/ncol(myrds_pvals)
+#   proportion_still_sig = proportion_sig[proportion_sig>0.95]
+#   if(length(grep("s__Enterococcus_faecalis",proportion_still_sig))>0) {
+#     return(TRUE)
+#   } else {
+#     return(FALSE)
+#   }
+# })
+# 
+# lapply(my_genes_files_test, function(myrds) {
+#   boot1_res = readRDS(myrds)
+#   myrds_pvals = do.call("cbind",lapply(boot1_res, function(mydf) mydf[,1]))
+#   rownames(myrds_pvals) = rownames(boot1_res[[1]])
+#   proportion_sig = rowSums(myrds_pvals<0.05,na.rm = TRUE)/ncol(myrds_pvals)
+#   proportion_still_sig = proportion_sig[proportion_sig>0.95]
+#   if(length(grep("s__Enterococcus_faecalis",proportion_still_sig))>0) {
+#     return(TRUE)
+#   } else {
+#     return(FALSE)
+#   }
+# })
+
+# permutation 1 is where all the T1D becomes non significant
+
+
+### ok. lets make a scatterplot where I look at healthy and seroconverters over time
+library(data.table)
+make_longitudinal_plot =function(feature_name,abundance_type,output) {
+  metadata = read.csv('/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/teddy_metadata_20190821_with_GRS2.csv')
+  # don't include metadata we don't have GRS scores for
+  metadata = metadata[!is.na(metadata$GRS_score),]
+  # also only include samples we have abundance data for
+  abundance_samples = read.table("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/sample_we_have_abundance_data_for.txt",header=FALSE)
+  abundance_samples = abundance_samples[,1]
+  abundance_metadata_samples = intersect(metadata$Run,abundance_samples)
+  metadata = metadata[match(abundance_metadata_samples,metadata$Run),]
+  #metadata_healthy = metadata[is.na(metadata$age_first_MIAA) & is.na(metadata$age_first_GAD) & is.na(metadata$age_first_IA2A) & is.na(metadata$age_t1d),]
+  if(abundance_type == "species") {
+    abundance_data = fread("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/humann_analysis/TEDDY_species_abundances.tsv",sep="\t",header = TRUE,data.table = FALSE)
+    rownames(abundance_data) = abundance_data[,1]
+    abundance_data = abundance_data[,-1]
+    myfiles = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4",pattern="species_bootstrap_ttest_results_round2.rds",full.names = TRUE,recursive = TRUE)
+  } else if(abundance_type == "pathway") {
+    abundance_data = fread("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/humann_analysis/TEDDY_pathabundance-cpm.tsv",sep="\t",header=TRUE,data.table = FALSE)
+    rownames(abundance_data) = abundance_data[,1]
+    abundance_data = abundance_data[,-1]
+    colnames(abundance_data) = gsub("_human_free_Abundance","",colnames(abundance_data))
+  }
+  rownames(abundance_data) = make.names(rownames(abundance_data))
+  feature_name = make.names(feature_name)
+  # make sure abundance data and metadata are in same order
+  samples_in_both = intersect(colnames(abundance_data),metadata$Run)
+  abundance_data= abundance_data[,samples_in_both]
+  metadata = metadata[match(samples_in_both,metadata$Run),]
+  metadata$feature_abundance = unlist(abundance_data[feature_name,])
+  metadata$feature_abundance = RankNorm(metadata$feature_abundance)
+  metadata$num_autoantibody_ever = apply(metadata[,c("age_first_MIAA","age_first_GAD","age_first_IA2A")], 1, function(x) sum(!is.na(x)))
+  metadata$sero2 = metadata$num_autoantibody_ever>=2
+  metadata$heatlhy_or_sero = rep(NA,nrow(metadata))
+  metadata$heatlhy_or_sero[metadata$sero2==TRUE] = "sero"
+  metadata$heatlhy_or_sero[metadata$t1d_sero_control=="control"] = "healthy"
+  myplot = ggplot(metadata,aes(x=age_at_collection,y=feature_abundance,color=heatlhy_or_sero)) + geom_point() + geom_smooth(method = "loess")
+  pdf(output)
+  print(myplot)
+  dev.off()
+}
+
+make_longitudinal_plot(feature_name="k__Bacteria.p__Firmicutes.c__Bacilli.o__Lactobacillales.f__Enterococcaceae.g__Enterococcus.s__Enterococcus_faecalis",abundance_type="species",output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/Enterococcus_faecalis_longitudinal_healthy_vs_sero.pdf")
+
+
+make_longitudinal_plot_random_people =function(feature_name,abundance_type,output,phenotype) {
+  metadata = read.csv('/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/teddy_metadata_20190821_with_GRS2.csv')
+  # don't include metadata we don't have GRS scores for
+  metadata = metadata[!is.na(metadata$GRS_score),]
+  # also only include samples we have abundance data for
+  abundance_samples = read.table("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/sample_we_have_abundance_data_for.txt",header=FALSE)
+  abundance_samples = abundance_samples[,1]
+  abundance_metadata_samples = intersect(metadata$Run,abundance_samples)
+  metadata = metadata[match(abundance_metadata_samples,metadata$Run),]
+  #metadata_healthy = metadata[is.na(metadata$age_first_MIAA) & is.na(metadata$age_first_GAD) & is.na(metadata$age_first_IA2A) & is.na(metadata$age_t1d),]
+  if(abundance_type == "species") {
+    abundance_data = fread("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/humann_analysis/TEDDY_species_abundances.tsv",sep="\t",header = TRUE,data.table = FALSE)
+    rownames(abundance_data) = abundance_data[,1]
+    abundance_data = abundance_data[,-1]
+    myfiles = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4",pattern="species_bootstrap_ttest_results_round2.rds",full.names = TRUE,recursive = TRUE)
+  } else if(abundance_type == "pathway") {
+    abundance_data = fread("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/humann_analysis/TEDDY_pathabundance-cpm.tsv",sep="\t",header=TRUE,data.table = FALSE)
+    rownames(abundance_data) = abundance_data[,1]
+    abundance_data = abundance_data[,-1]
+    colnames(abundance_data) = gsub("_human_free_Abundance","",colnames(abundance_data))
+  }
+  rownames(abundance_data) = make.names(rownames(abundance_data))
+  feature_name = make.names(feature_name)
+  # make sure abundance data and metadata are in same order
+  samples_in_both = intersect(colnames(abundance_data),metadata$Run)
+  abundance_data= abundance_data[,samples_in_both]
+  metadata = metadata[match(samples_in_both,metadata$Run),]
+  metadata$feature_abundance = unlist(abundance_data[feature_name,])
+  metadata$feature_abundance = RankNorm(metadata$feature_abundance)
+  metadata$num_autoantibody_ever = apply(metadata[,c("age_first_MIAA","age_first_GAD","age_first_IA2A")], 1, function(x) sum(!is.na(x)))
+  metadata$sero2 = metadata$num_autoantibody_ever>=2
+  metadata$heatlhy_or_sero = rep(NA,nrow(metadata))
+  metadata$heatlhy_or_sero[metadata$sero2==TRUE] = "sero"
+  metadata$heatlhy_or_sero[metadata$t1d_sero_control=="control"] = "healthy"
+  set.seed(123)
+  if(phenotype=="GAD") {
+    # select 5 random people who have GAD auto antibody
+    metadata_pheno_only = metadata[!is.na(metadata$age_first_GAD),]
+  } else if(phenotype == "MIAA") {
+    metadata_pheno_only = metadata[!is.na(metadata$age_first_MIAA),]
+  } else if(phenotype == "IA2A") {
+    metadata_pheno_only = metadata[!is.na(metadata$age_first_IA2A),]
+  } else if(phenotype == "sero") {
+    metadata_pheno_only = metadata[which(metadata$sero2==TRUE),]
+  } else if(phenotype == "T1D") {
+    metadata_pheno_only = metadata[which(metadata$t1d_sero_control=="t1d"),]
+  } else if(phenotype == "healthy") {
+    metadata_pheno_only = metadata[which(metadata$t1d_sero_control=="control"),]
+  }
+  subjects_to_get = sample(unique(metadata_pheno_only$m138_maskid),10)
+  metadata_pheno_only = metadata_pheno_only[metadata_pheno_only$m138_maskid%in%subjects_to_get,]
+  min_age = min(metadata_pheno_only$age_at_collection)
+  max_age = max(metadata_pheno_only$age_at_collection)
+  pdf(output)
+  for(subjectID_temp in unique(metadata_pheno_only$m138_maskid)) {
+    myrows = metadata_pheno_only[metadata_pheno_only$m138_maskid%in%subjectID_temp,]
+    myplot = ggplot(myrows,aes(x=age_at_collection,y=feature_abundance)) + geom_point() + xlim(min_age,max_age) + theme_classic()
+    if(phenotype == "GAD") {
+      myplot = myplot + geom_vline(xintercept = unique(myrows$age_first_GAD),color="red")
+    }
+    if(phenotype == "MIAA") {
+      myplot = myplot + geom_vline(xintercept = unique(myrows$age_first_MIAA),color="red")
+    } 
+    if(phenotype == "IA2A") {
+      myplot = myplot + geom_vline(xintercept = unique(myrows$age_first_IA2A),color="red")
+    } 
+    if(phenotype=="sero") {
+      myplot = myplot + geom_vline(xintercept = unique(myrows$age_first_pos),color="red")
+    } 
+    if(phenotype=="T1D") {
+      myplot = myplot + geom_vline(xintercept = unique(myrows$age_first_pos),color="red")
+    } 
+    print(myplot)
+  }
+  dev.off()
+}
+
+#make_longitudinal_plot_random_people(feature_name="k__Bacteria.p__Firmicutes.c__Bacilli.o__Lactobacillales.f__Enterococcaceae.g__Enterococcus.s__Enterococcus_faecalis",abundance_type="species",output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/Enterococcus_faecalis_longitudinal_rando_people.pdf",phenotype="GAD")
+
+make_longitudinal_plot_random_people(feature_name="k__Bacteria.p__Firmicutes.c__Bacilli.o__Lactobacillales.f__Enterococcaceae.g__Enterococcus.s__Enterococcus_faecalis",abundance_type="species",output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/Enterococcus_faecalis_longitudinal_rando_people_sero.pdf",phenotype="sero")
+
+make_longitudinal_plot_random_people(feature_name="k__Bacteria.p__Firmicutes.c__Bacilli.o__Lactobacillales.f__Enterococcaceae.g__Enterococcus.s__Enterococcus_faecalis",abundance_type="species",output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/Enterococcus_faecalis_longitudinal_rando_people_healthy.pdf",phenotype="healthy")
+
+
+
+# what if I don't include lasso coefs. Lets just plot proportion
+
+
+
+
+library(data.table)
+get_proportions = function(sig_gene_file,output,category="all") {
+  sig_gene_df = read.csv(sig_gene_file)
+  sig_gene_df = data.table(sig_gene_df)
+  if(length(grep("serconverters_or_T1D",sig_gene_df$model))>0) {
+    sig_gene_df = sig_gene_df[-grep("serconverters_or_T1D",model)]
+  }
+  if(category == "all") {
+    sig_gene_df_counts = sig_gene_df[,length(unique(model)),by=geneName] 
+  } else if(category=="MIAA") {
+    sig_gene_df = sig_gene_df[grep("MIAA",model)]
+    sig_gene_df_counts = sig_gene_df[,length(unique(model)),by=geneName] 
+  } else if(category=="GAD") {
+    sig_gene_df = sig_gene_df[grep("GAD",model)]
+    sig_gene_df_counts = sig_gene_df[,length(unique(model)),by=geneName] 
+  } else if(category=="IA2A") {
+    sig_gene_df = sig_gene_df[grep("IA2A",model)]
+    sig_gene_df_counts = sig_gene_df[,length(unique(model)),by=geneName] 
+  } else if(category=="sero") {
+    sig_gene_df = sig_gene_df[grep("healthy_pre-sero",model)]
+    sig_gene_df_counts = sig_gene_df[,length(unique(model)),by=geneName] 
+  } else if(category=="t1d") {
+    sig_gene_df = sig_gene_df[grep("healthy_pre-t1d",model)]
+    sig_gene_df_counts = sig_gene_df[,length(unique(model)),by=geneName] 
+  }
+  sig_gene_df_counts$prop = sig_gene_df_counts$V1/length(unique(sig_gene_df$model))
+  colnames(sig_gene_df_counts)[1] = "name"
+  colnames(sig_gene_df_counts)[2] = "number"
+  sig_gene_df_counts = as.data.frame(sig_gene_df_counts)
+  sig_gene_df_counts = sig_gene_df_counts[order(sig_gene_df_counts$prop,decreasing = TRUE),]
+  sig_gene_df_counts$name = factor(sig_gene_df_counts$name,levels=sig_gene_df_counts$name)
+  if(nrow(sig_gene_df_counts)>25) {
+    myplot = ggplot(sig_gene_df_counts[1:25,],aes(x=name,y=prop)) + geom_bar(stat="identity") + theme_classic() + coord_flip() + geom_text(aes(label=number),hjust = -0.1)
+  } else {
+    myplot = ggplot(sig_gene_df_counts,aes(x=name,y=prop)) + geom_bar(stat="identity") + theme_classic() + coord_flip() + geom_text(aes(label=number),hjust = -0.1)
+  }
+  pdf(output,width=10)
+  print(myplot)
+  dev.off()
+  return(sig_gene_df_counts)
+}
+
+
+pathway_0.9_sig_mat_no_coef = get_proportions(sig_gene_file = "/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/pathway_0.9_train_test_sig_genes.csv",output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/train_test_results_pathway_0.9_matrix_no_coef.pdf",category = "all")
+pathway_0.9_sig_mat_GAD_no_coef = get_proportions(sig_gene_file = "/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/pathway_0.9_train_test_sig_genes.csv",output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/train_test_results_pathway_0.9_GAD_matrix_no_coef.pdf",categor="GAD")
+pathway_0.9_sig_mat_IA2A_no_coef = get_proportions(sig_gene_file = "/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/pathway_0.9_train_test_sig_genes.csv",output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/train_test_results_pathway_0.9_IA2A_matrix_no_coef.pdf",category="IA2A")
+pathway_0.9_sig_mat_sero_no_coef = get_proportions(sig_gene_file = "/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/pathway_0.9_train_test_sig_genes.csv",output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/train_test_results_pathway_0.9_sero_matrix_no_coef.pdf",category="sero")
+pathway_0.9_sig_mat_T1D_no_coef = get_proportions(sig_gene_file = "/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/pathway_0.9_train_test_sig_genes.csv",output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/train_test_results_pathway_0.9_t1d_matrix_no_coef.pdf",category="t1d")
+
+
+species_0.3_sig_mat_no_coef = get_proportions(sig_gene_file = "/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/species_0.3_train_test_sig_genes.csv",output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/train_test_results_species_0.3_matrix_no_coef.pdf",category="all")
+species_0.3_sig_mat_MIAA_no_coef = get_proportions(sig_gene_file = "/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/species_0.3_train_test_sig_genes.csv",output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/train_test_results_species_0.3_MIAA_matrix_no_coef.pdf",category="MIAA")
+species_0.3_sig_mat_GAD_no_coef = get_proportions(sig_gene_file = "/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/species_0.3_train_test_sig_genes.csv",output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/train_test_results_species_0.3_GAD_matrix_no_coef.pdf",category="GAD")
+species_0.3_sig_mat_IA2A_no_coef = get_proportions(sig_gene_file = "/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/species_0.3_train_test_sig_genes.csv",output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/train_test_results_species_0.3_IA2A_matrix_no_coef.pdf",category="IA2A")
+species_0.3_sig_mat_sero_no_coef = get_proportions(sig_gene_file = "/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/species_0.3_train_test_sig_genes.csv",output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/train_test_results_species_0.3_sero_matrix_no_coef.pdf",category="sero")
+species_0.3_sig_mat_T1D_no_coef = get_proportions(sig_gene_file = "/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/species_0.3_train_test_sig_genes.csv",output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/train_test_results_species_0.3_T1D_matrix_no_coef.pdf",category="t1d")
+
+
+pathway_0.3_sig_mat_no_coef = get_proportions(sig_gene_file = "/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/pathway_0.3_train_test_sig_genes.csv",output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/train_test_results_pathway_0.3_matrix_no_coef.pdf",category="all")
+pathway_0.3_sig_mat_MIAA_no_coef = get_proportions(sig_gene_file = "/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/pathway_0.3_train_test_sig_genes.csv",output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/train_test_results_pathway_0.3_MIAA_matrix_no_coef.pdf",category="MIAA")
+pathway_0.3_sig_mat_IA2A_no_coef = get_proportions(sig_gene_file = "/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/pathway_0.3_train_test_sig_genes.csv",output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/train_test_results_pathway_0.3_IA2A_matrix_no_coef.pdf",category="IA2A")
+pathway_0.3_sig_mat_GAD_no_coef = get_proportions(sig_gene_file = "/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/pathway_0.3_train_test_sig_genes.csv",output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/train_test_results_pathway_0.3_GAD_matrix_no_coef.pdf",category="GAD")
+pathway_0.3_sig_mat_sero_no_coef = get_proportions(sig_gene_file = "/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/pathway_0.3_train_test_sig_genes.csv",output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/train_test_results_pathway_0.3_sero_matrix_no_coef.pdf",category="sero")
+pathway_0.3_sig_mat_t1d_no_coef = get_proportions(sig_gene_file = "/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/pathway_0.3_train_test_sig_genes.csv",output="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/train_test_results_pathway_0.3_t1d_matrix_no_coef.pdf",category="t1d")
+
+
+
+# # rm */*species_bootstrap_ttest_results_round2_sig_names.txt
+# 
+# get_sig_genes = function(abundance_type,output_file) {
+#   if(abundance_type == "species") {
+#     myfiles = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4",pattern="species_bootstrap_ttest_results_round2.rds",recursive = TRUE,full.names = TRUE)
+#   } else if(abundance_type == "pathway") {
+#     myfiles = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4",pattern="pathway_bootstrap_ttest_results_round2.rds",recursive = TRUE,full.names = TRUE)
+#   }
+#   still_sig_gene_list = lapply(myfiles, function(myoutfile) {
+#     myrds = readRDS(myoutfile)
+#     myrds_pvals = do.call("cbind",lapply(myrds, function(mydf) mydf[,1]))
+#     rownames(myrds_pvals) = rownames(myrds[[1]])
+#     proportion_sig = rowSums(myrds_pvals<0.05)/ncol(myrds_pvals)
+#     proportion_still_sig = proportion_sig[proportion_sig>0.95]
+#     outputname = gsub("_bootstrap_ttest_results_round2.rds","_bootstrap_ttest_results_round2_sig_names.txt",myoutfile)
+#     if(length(names(proportion_still_sig))>0) {
+#       write.table(names(proportion_still_sig),file=outputname,col.names=FALSE,row.names=FALSE,quote=FALSE) 
+#       return(proportion_still_sig)
+#     } else {
+#       return(proportion_still_sig)
+#     }
+#   })
+#   names(still_sig_gene_list) = myfiles
+#   sig_gene_folders = names(still_sig_gene_list)[sapply(still_sig_gene_list,length)>0]
+# 
+#   if(abundance_type == "pathway") {
+#     lasso_reg_orig_input = read.table("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_pathway.csv",sep=",",header=FALSE)
+#     lasso_reg_orig_input_sig = lasso_reg_orig_input[sapply(basename(dirname(sig_gene_folders)), function(x) grep(x,lasso_reg_orig_input[,1])),]
+#   } else if(abundance_type == "species") {
+#     lasso_reg_orig_input = read.table("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_species.csv",sep=",",header=FALSE)
+#     lasso_reg_orig_input_sig = lasso_reg_orig_input[sapply(basename(dirname(sig_gene_folders)), function(x) grep(x,lasso_reg_orig_input[,1])),]
+#   }
+#   write.table(lasso_reg_orig_input_sig,file=output_file,sep=",",col.names=FALSE,row.names=FALSE,quote=FALSE)
+# }
+# 
+# get_sig_genes(abundance_type = "pathway",output_file="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_all_HLA_bootstrap_sig_pathway.csv")
+# 
+# get_sig_genes(abundance_type = "species",output_file="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_all_HLA_bootstrap_sig_species.csv")
+# 
+# 
+# 
+# 
+# get_sig_genes_with_cutoff = function(abundance_type,output_file,cutoff) {
+#   if(abundance_type == "species") {
+#     myfiles = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4",pattern=paste(cutoff,"species_bootstrap_ttest_results_round2.rds",sep=""),recursive = TRUE,full.names = TRUE)
+#   } else if(abundance_type == "pathway") {
+#     myfiles = list.files("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_alignments/parsed_data_4",pattern=paste(cutoff,"pathway_bootstrap_ttest_results_round2.rds",sep=""),recursive = TRUE,full.names = TRUE)
+#   }
+#   still_sig_gene_list = lapply(myfiles, function(myoutfile) {
+#     myrds = readRDS(myoutfile)
+#     myrds_pvals = do.call("cbind",lapply(myrds, function(mydf) mydf[,1]))
+#     rownames(myrds_pvals) = rownames(myrds[[1]])
+#     proportion_sig = rowSums(myrds_pvals<0.05)/ncol(myrds_pvals)
+#     proportion_still_sig = proportion_sig[proportion_sig>0.95]
+#     outputname = gsub("_bootstrap_ttest_results_round2.rds","_bootstrap_ttest_results_round2_sig_names.txt",myoutfile)
+#     if(length(names(proportion_still_sig))>0) {
+#       write.table(names(proportion_still_sig),file=outputname,col.names=FALSE,row.names=FALSE,quote=FALSE) 
+#       return(proportion_still_sig)
+#     } else {
+#       return(proportion_still_sig)
+#     }
+#   })
+#   names(still_sig_gene_list) = myfiles
+#   sig_gene_folders = names(still_sig_gene_list)[sapply(still_sig_gene_list,length)>0]
+# 
+#   if(abundance_type == "pathway") {
+#     lasso_reg_orig_input = read.table("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_pathway0.3.csv",sep=",",header=FALSE)
+#     lasso_reg_orig_input_sig = lasso_reg_orig_input[sapply(basename(dirname(sig_gene_folders)), function(x) grep(x,lasso_reg_orig_input[,1])),]
+#   } else if(abundance_type == "species") {
+#     lasso_reg_orig_input = read.table("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_species0.3.csv",sep=",",header=FALSE)
+#     lasso_reg_orig_input_sig = lasso_reg_orig_input[sapply(basename(dirname(sig_gene_folders)), function(x) grep(x,lasso_reg_orig_input[,1])),]
+#   }
+#   write.table(lasso_reg_orig_input_sig,file=output_file,sep=",",col.names=FALSE,row.names=FALSE,quote=FALSE)
+# }
+# 
+# get_sig_genes_with_cutoff(abundance_type = "pathway",output_file="/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_all_HLA_bootstrap_sig_pathway0.3.csv",cutoff=0.3)
+
+
+```
+
+
+
+#Do lasso regression
+
+```{bash}
+
+# if I want to redo ls */*speciesoutput_lasso_logistic_regression_NA_loss_microbiome_selection_method_ttest_sig_feature_list_microbiome.rds | grep "_before_vs_far_from_condition_subject_level-all_HLA_" | while read line; do rm $line; done
+
+head -n 1 models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_all_HLA_bootstrap_sig_pathway.csv > test.csv
+
+sbatch -n 1 -c 1 --mem=25G -p short -t 0-01:00 scripts/run_lasso_binary_all_clinical_bootstrap_sig_bulk.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_all_HLA_bootstrap_sig_pathway.csv microbiome NA ttest_sig 1 NA
+
+sbatch -n 1 -c 1 --mem=25G -p short -t 0-01:00 scripts/run_lasso_binary_all_clinical_bootstrap_sig_bulk.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_all_HLA_bootstrap_sig_species.csv microbiome NA ttest_sig 1 NA
+
+sbatch -n 1 -c 1 --mem=25G -p short -t 0-01:00 scripts/run_lasso_binary_all_clinical_bootstrap_sig_bulk_with_cutoff.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_all_HLA_bootstrap_sig_pathway0.3.csv microbiome NA ttest_sig 1 NA 0.3
+
+```
+
+```{r}
+library(data.table)
+library(glmnet)
+
+getAUCs = function(rds_files) {
+  testAUCs = sapply(rds_files, function(myrds) {
+    print(myrds)
+    mylist = readRDS(myrds)
+    AUC = mylist[[2]]["AUC-ROC_Score"]
+    AUC_CIs = mylist[[2]]["AUC-ROC_CI"]
+    AUC_CIs_lower = strsplit(AUC_CIs,split="-")[[1]][1]
+    AUC_CIs_upper = strsplit(AUC_CIs,split="-")[[1]][2]
+    return(c(AUC_CIs_lower,AUC,AUC_CIs_upper))
+  })
+  return(testAUCs)
+}
+
+get_AUCs_functions = function(abundance_type) {
+  if(abundance_type == "pathway") {
+    input = read.csv("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_all_HLA_bootstrap_sig_pathway.csv",header=FALSE)
+    folders = dirname(input[,1])
+    microbiome_data = unlist(lapply(folders, function(x) list.files(x,pattern="pathwayoutput_lasso_logistic_regression_NA_loss_microbiome_selection_method_ttest_sig_feature_list_microbiome.rds",full.names = TRUE)))
+  } else if(abundance_type == "species") {
+    input = read.csv("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_all_HLA_bootstrap_sig_species.csv",header=FALSE)
+    folders = dirname(input[,1])
+    microbiome_data = unlist(lapply(folders, function(x) list.files(x,pattern="speciesoutput_lasso_logistic_regression_NA_loss_microbiome_selection_method_ttest_sig_feature_list_microbiome.rds",full.names = TRUE)))
+  } else if(abundance_type == "gene") {
+    input = read.csv("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_all_HLA_bootstrap_sig.csv")
+    folders = dirname(input[,1])
+    microbiome_data = unlist(lapply(folders, function(x) list.files(x,pattern="output_lasso_logistic_regression_NA_loss_microbiome_selection_method_ttest_sig_feature_list_microbiome.rds",full.names = TRUE)))
+  }
+  microbiome_only_AUcs = getAUCs(microbiome_data)
+  
+  microbiome_only_AUCs_conditions = sapply(strsplit(basename(colnames(microbiome_only_AUcs)),split="-"), function(my_temp_list) {
+  beggin_remove = min(grep("month",my_temp_list))
+  return(paste(my_temp_list[-seq(beggin_remove,length(my_temp_list))],collapse="-"))
+  })
+  
+  microbiome_only_AUCs_ages = sapply(strsplit(basename(colnames(microbiome_only_AUcs)),split="-"), function(my_temp_list) {
+  beggin_remove = grep("month",my_temp_list)
+  month_parts = my_temp_list[beggin_remove]
+  month_parts = gsub("_before_vs_far_from_condition_subject_level","",month_parts)
+  return(paste(month_parts,collapse="-"))
+  })
+  
+  microbiome_only_proportion_train = sapply(strsplit(basename(colnames(microbiome_only_AUcs)),split="_proportion_train_"), function(my_temp_list) {
+  train_prop = strsplit(my_temp_list[2],split="_")[[1]][1]
+  return(train_prop)
+  })
+
+  AUC_df = cbind(t(microbiome_only_AUcs),condition=microbiome_only_AUCs_conditions,age=microbiome_only_AUCs_ages)
+  colnames(AUC_df)[1] = "lower_AUC_CI"
+  colnames(AUC_df)[2] = "AUC"
+  colnames(AUC_df)[3] = "upper_AUC_CI"
+  AUC_df = as.data.frame(AUC_df)
+  AUC_df[,1] = as.numeric(AUC_df[,1])
+  AUC_df[,2] = as.numeric(AUC_df[,2])
+  AUC_df[,3] = as.numeric(AUC_df[,3])
+
+  AUC_df$condition = as.factor(AUC_df$condition)
+  AUC_df$age = factor(AUC_df$age,levels=c("1month","1month-2month","2month","2month-3month","3month"))
+  AUC_df = AUC_df[-grep("serconverters_or_T1D",rownames(AUC_df)),]
+  library(ggplot2)
+  
+  if(abundance_type == "species") {
+    auc_output_plot66 = "species_microbiome_AUCs_various_covariates_before_vs_early_T1D_bootsraped_ttest_res_0.66_train.pdf"
+    auc_output_plot5 = "species_microbiome_AUCs_various_covariates_before_vs_early_T1D_bootsraped_ttest_res_0.5_train.pdf"
+  } else if(abundance_type == "pathway") {
+    auc_output_plot66 = "pathway_microbiome_AUCs_various_covariates_before_vs_early_T1D_bootsraped_ttest_res_0.66_train.pdf"
+    auc_output_plot5 = "pathway_microbiome_AUCs_various_covariates_before_vs_early_T1D_bootsraped_ttest_res_0.5_train.pdf"
+  } else {
+    auc_output_plot66 = "microbiome_AUCs_various_covariates_before_vs_early_T1D_bootsraped_ttest_res_0.66_train.pdf"
+    auc_output_plot5 = "microbiome_AUCs_various_covariates_before_vs_early_T1D_bootsraped_ttest_res_0.5_train.pdf"
+  }
+
+  pdf(auc_output_plot66,width=10)
+  auc_plot1 = ggplot(AUC_df[grep("0.66",rownames(AUC_df)),], aes(x=condition, y=AUC, fill=age)) +geom_bar(stat="identity",position=position_dodge()) + geom_errorbar(aes(ymin=lower_AUC_CI, ymax=upper_AUC_CI),width=0.1,position=position_dodge(.9)) + theme_bw() + scale_y_continuous(breaks=seq(0,1,by=0.05)) + coord_cartesian(ylim = c(0.5, 1))
+  print(auc_plot1)
+  dev.off()
+  pdf(auc_output_plot5,width=10)
+  auc_plot2 = ggplot(AUC_df[grep("0.5",rownames(AUC_df)),], aes(x=condition, y=AUC, fill=age)) +geom_bar(stat="identity",position=position_dodge()) + geom_errorbar(aes(ymin=lower_AUC_CI, ymax=upper_AUC_CI),width=0.1,position=position_dodge(.9)) + theme_bw() + scale_y_continuous(breaks=seq(0,1,by=0.05)) + coord_cartesian(ylim = c(0.5, 1))
+  print(auc_plot2)
+  dev.off()
+
+  
+  gene_functions_func = function(microbiome_data_param,output_plot) {
+    functions_list = lapply(microbiome_data_param, function(myrds) {
+      mylist = readRDS(myrds)
+      geneNames = mylist[[3]]
+      if(class(geneNames)[1] == "numeric") {
+        geneNames = geneNames[-grep("Intercept",names(geneNames))]
+        geneNames = geneNames[order(abs(geneNames),decreasing = TRUE)]
+        return(geneNames)
+      } else {
+        geneNames = geneNames[-grep("Intercept",rownames(geneNames)),,drop=FALSE]
+        geneNames = geneNames[order(abs(geneNames[,1]),decreasing = TRUE),,drop=FALSE]
+        return(geneNames)
+      }
+    })
+  
+    frequency_table = data.frame(sort(table(unlist(lapply(functions_list, function(x) {
+      if(class(x) == "numeric") {
+        return(unique(names(x)))
+      } else {
+        return(unique(rownames(x)))
+      }
+    }))),decreasing = TRUE))
+  
+    frequency_table$prop = frequency_table$Freq/length(functions_list)
+    
+    all_functions_dt = lapply(microbiome_data_param, function(myrds) {
+      mylist = readRDS(myrds)
+      function_list_temp = mylist[[3]]
+      if(class(function_list_temp)[1] == "dgCMatrix") {
+        function_list_temp = as.matrix(function_list_temp)
+        function_list_temp = as.data.frame(function_list_temp)
+        colnames(function_list_temp)[1] = c("coef")
+      } else {
+        function_list_temp = as.data.frame(function_list_temp)
+        colnames(function_list_temp)[1] = c("coef")
+      }
+      function_list_temp$file = myrds
+      function_list_temp = function_list_temp[-match("(Intercept)",rownames(function_list_temp)),]
+      return(function_list_temp)
+    })
+    all_functions_dt = do.call("rbind",all_functions_dt)
+    all_functions_dt = cbind(name=rownames(all_functions_dt),all_functions_dt)
+    all_functions_dt = as.data.table(all_functions_dt)
+    all_functions_dt = all_functions_dt[,mean(coef),by=name]
+    
+    frequency_table$coef = all_functions_dt[match(frequency_table$Var1,all_functions_dt$name),]$V1
+    
+    if(abundance_type == "species") {
+      
+      frequency_table$Var1 = sapply(strsplit(as.character(frequency_table$Var1),split="__"), function(x) {
+        last_part = x[length(x)] 
+        first_part = x[length(x)-1]
+        first_part = strsplit(first_part,split="_")[[1]]
+        first_part = first_part[length(first_part)]
+        return(paste(first_part,last_part,sep="_"))
+      })
+      frequency_table$Var1 = factor(frequency_table$Var1,levels=frequency_table$Var1)
+    }
+    if(nrow(frequency_table)>25) {
+      myplot = ggplot(frequency_table[1:25,],aes(x=Var1,y=prop,fill=coef)) + geom_bar(stat="identity") + coord_flip() + theme_classic() 
+    } else {
+      myplot = ggplot(frequency_table,aes(x=Var1,y=prop,fill=coef)) + geom_bar(stat="identity") + coord_flip() + theme_classic()
+    }
+    if(abundance_type == "pathway") {
+    pdf(output_plot,width=10) 
+    } else {
+      pdf(output_plot)
+    }
+    print(myplot)
+    dev.off()
+    return(frequency_table)
+  }
+  all_microbiome_functions = gene_functions_func(microbiome_data,paste(abundance_type,"all_microbiome_functions_before_onset.pdf",sep="_"))
+  sero_microbiome_functions = gene_functions_func(microbiome_data[grep("healthy_pre-sero",microbiome_data)],paste(abundance_type,"sero_microbiome_functions_before_onset.pdf",sep="_"))
+  MIAA_microbiome_functions = gene_functions_func(microbiome_data[grep("healthy_pre-MIAA",microbiome_data)],paste(abundance_type,"MIAA_microbiome_functions_before_onset.pdf",sep="_"))
+  IA2A_microbiome_functions = gene_functions_func(microbiome_data[grep("healthy_pre-IA2A",microbiome_data)],paste(abundance_type,"IA2A_microbiome_functions_before_onset.pdf",sep="_"))
+  GAD_microbiome_functions = gene_functions_func(microbiome_data[grep("healthy_pre-GAD",microbiome_data)],paste(abundance_type,"GAD_microbiome_functions_before_onset.pdf",sep="_"))
+  T1D_microbiome_functions = gene_functions_func(microbiome_data[grep("healthy_pre-t1d",microbiome_data)],paste(abundance_type,"T1D_microbiome_functions_before_onset.pdf",sep="_"))
+  
+  #get all coefficients
+  #names(functions_list) = microbiome_data_param
+  #function_list_temp_list = lapply(1:length(functions_list), function(myind) {
+  all_functions = lapply(microbiome_data, function(myrds) {
+    mylist = readRDS(myrds)
+    function_list_temp = mylist[[3]]
+    if(class(function_list_temp)[1] == "dgCMatrix") {
+      function_list_temp = as.matrix(function_list_temp)
+      function_list_temp = as.data.frame(function_list_temp)
+      colnames(function_list_temp)[1] = c("coef")
+    }
+    else {
+      function_list_temp = as.data.frame(function_list_temp)
+      colnames(function_list_temp)[1] = c("coef")
+    }
+    function_list_temp$file = myrds
+    return(function_list_temp)
+  })
+  all_functions = do.call("rbind",all_functions)
+  write.csv(all_functions,file=paste(abundance_type,"_before_vs_after_sig_genes_table.csv",sep=""))
+  return(list(AUC_df,all_functions))
+}
+
+
+
+get_AUCs_functions(abundance_type="pathway")
+species_stats = get_AUCs_functions(abundance_type="species") # 0.8764444
+gene_stats = get_AUCs_functions(abundance_type="gene") # 0.8764444
+
+mean(species_stats[[1]][,2])
+mean(gene_stats[[1]][,2]) # 0.8764444
+
+
+
+
+
+
+
+
+
+get_AUCs_functions_with_cutoff = function(abundance_type,cutoff) {
+  if(abundance_type == "pathway") {
+    input = read.csv("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_all_HLA_bootstrap_sig_pathway0.3.csv",header=FALSE)
+    folders = dirname(input[,1])
+    microbiome_data = unlist(lapply(folders, function(x) list.files(x,pattern=paste(cutoff,"_pathwayoutput_lasso_logistic_regression_NA_loss_microbiome_selection_method_ttest_sig_feature_list_microbiome.rds",sep=""),full.names = TRUE)))
+  } else if(abundance_type == "species") {
+    input = read.csv("/n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/models_input_files_parsed_v4_before_vs_far_from_condition_subject_level_no_header_for_lmer_all_HLA_bootstrap_sig_species.csv",header=FALSE)
+    folders = dirname(input[,1])
+    microbiome_data = unlist(lapply(folders, function(x) list.files(x,pattern=paste(cutoff,"_speciesoutput_lasso_logistic_regression_NA_loss_microbiome_selection_method_ttest_sig_feature_list_microbiome.rds",sep=""),full.names = TRUE)))
+  }
+  microbiome_only_AUcs = getAUCs(microbiome_data)
+  
+  microbiome_only_AUCs_conditions = sapply(strsplit(basename(colnames(microbiome_only_AUcs)),split="-"), function(my_temp_list) {
+  beggin_remove = min(grep("month",my_temp_list))
+  return(paste(my_temp_list[-seq(beggin_remove,length(my_temp_list))],collapse="-"))
+  })
+  
+  microbiome_only_AUCs_ages = sapply(strsplit(basename(colnames(microbiome_only_AUcs)),split="-"), function(my_temp_list) {
+  beggin_remove = grep("month",my_temp_list)
+  month_parts = my_temp_list[beggin_remove]
+  month_parts = gsub("_before_vs_far_from_condition_subject_level","",month_parts)
+  return(paste(month_parts,collapse="-"))
+  })
+  AUC_df = cbind(t(microbiome_only_AUcs),condition=microbiome_only_AUCs_conditions,age=microbiome_only_AUCs_ages)
+  colnames(AUC_df)[1] = "lower_AUC_CI"
+  colnames(AUC_df)[2] = "AUC"
+  colnames(AUC_df)[3] = "upper_AUC_CI"
+  AUC_df = as.data.frame(AUC_df)
+  AUC_df[,1] = as.numeric(AUC_df[,1])
+  AUC_df[,2] = as.numeric(AUC_df[,2])
+  AUC_df[,3] = as.numeric(AUC_df[,3])
+
+  AUC_df$condition = as.factor(AUC_df$condition)
+  AUC_df$age = factor(AUC_df$age,levels=c("1month","1month-2month","2month","2month-3month","3month"))
+  AUC_df = AUC_df[-grep("serconverters_or_T1D",rownames(AUC_df)),]
+  library(ggplot2)
+  
+  if(abundance_type == "species") {
+    auc_output_plot66 = paste("species_",cutoff,"_","microbiome_AUCs_various_covariates_before_vs_early_T1D_bootsraped_ttest_res_0.66_train.pdf",sep="")
+    auc_output_plot5 = paste("species_",cutoff,"_","microbiome_AUCs_various_covariates_before_vs_early_T1D_bootsraped_ttest_res_0.5_train.pdf",sep="")
+  } else {
+    auc_output_plot66 = paste("pathway_",cutoff,"_","microbiome_AUCs_various_covariates_before_vs_early_T1D_bootsraped_ttest_res_0.66_train.pdf",sep="")
+    auc_output_plot5 = paste("pathway_",cutoff,"_","microbiome_AUCs_various_covariates_before_vs_early_T1D_bootsraped_ttest_res_0.5_train.pdf",sep="")
+  }
+
+  pdf(auc_output_plot66,width=10)
+  auc_plot1 = ggplot(AUC_df[grep("0.66",rownames(AUC_df)),], aes(x=condition, y=AUC, fill=age)) +geom_bar(stat="identity",position=position_dodge()) + geom_errorbar(aes(ymin=lower_AUC_CI, ymax=upper_AUC_CI),width=0.1,position=position_dodge(.9)) + theme_bw() + scale_y_continuous(breaks=seq(0,1,by=0.05)) + coord_cartesian(ylim = c(0.5, 1))
+  print(auc_plot1)
+  dev.off()
+  pdf(auc_output_plot5,width=10)
+  auc_plot2 = ggplot(AUC_df[grep("0.5",rownames(AUC_df)),], aes(x=condition, y=AUC, fill=age)) +geom_bar(stat="identity",position=position_dodge()) + geom_errorbar(aes(ymin=lower_AUC_CI, ymax=upper_AUC_CI),width=0.1,position=position_dodge(.9)) + theme_bw() + scale_y_continuous(breaks=seq(0,1,by=0.05)) + coord_cartesian(ylim = c(0.5, 1))
+  print(auc_plot2)
+  dev.off()
+
+  
+  gene_functions_func = function(microbiome_data_param,output_plot) {
+    functions_list = lapply(microbiome_data_param, function(myrds) {
+      mylist = readRDS(myrds)
+      geneNames = mylist[[3]]
+      if(class(geneNames)[1] == "numeric") {
+        geneNames = geneNames[-grep("Intercept",names(geneNames))]
+        geneNames = geneNames[order(abs(geneNames),decreasing = TRUE)]
+        return(geneNames)
+      } else {
+        geneNames = geneNames[-grep("Intercept",rownames(geneNames)),,drop=FALSE]
+        geneNames = geneNames[order(abs(geneNames[,1]),decreasing = TRUE),,drop=FALSE]
+        return(geneNames)
+      }
+    })
+  
+    frequency_table = data.frame(sort(table(unlist(lapply(functions_list, function(x) {
+      if(class(x) == "numeric") {
+        return(unique(names(x)))
+      } else {
+        return(unique(rownames(x)))
+      }
+    }))),decreasing = TRUE))
+  
+    frequency_table$prop = frequency_table$Freq/length(functions_list)
+    
+    all_functions_dt = lapply(microbiome_data_param, function(myrds) {
+      mylist = readRDS(myrds)
+      function_list_temp = mylist[[3]]
+      if(class(function_list_temp)[1] == "dgCMatrix") {
+        function_list_temp = as.matrix(function_list_temp)
+        function_list_temp = as.data.frame(function_list_temp)
+        colnames(function_list_temp)[1] = c("coef")
+      } else {
+        function_list_temp = as.data.frame(function_list_temp)
+        colnames(function_list_temp)[1] = c("coef")
+      }
+      function_list_temp$file = myrds
+      function_list_temp = function_list_temp[-match("(Intercept)",rownames(function_list_temp)),]
+      return(function_list_temp)
+    })
+    all_functions_dt = do.call("rbind",all_functions_dt)
+    all_functions_dt = cbind(name=rownames(all_functions_dt),all_functions_dt)
+    all_functions_dt = as.data.table(all_functions_dt)
+    all_functions_dt = all_functions_dt[,mean(coef),by=name]
+    
+    frequency_table$coef = all_functions_dt[match(frequency_table$Var1,all_functions_dt$name),]$V1
+    
+    if(abundance_type == "species") {
+      
+      frequency_table$Var1 = sapply(strsplit(as.character(frequency_table$Var1),split="__"), function(x) {
+        last_part = x[length(x)] 
+        first_part = x[length(x)-1]
+        first_part = strsplit(first_part,split="_")[[1]]
+        first_part = first_part[length(first_part)]
+        return(paste(first_part,last_part,sep="_"))
+      })
+      frequency_table$Var1 = factor(frequency_table$Var1,levels=frequency_table$Var1)
+    }
+    if(nrow(frequency_table)>25) {
+      myplot = ggplot(frequency_table[1:25,],aes(x=Var1,y=prop,fill=coef)) + geom_bar(stat="identity") + coord_flip() + theme_classic() 
+    } else {
+      myplot = ggplot(frequency_table,aes(x=Var1,y=prop,fill=coef)) + geom_bar(stat="identity") + coord_flip() + theme_classic()
+    }
+    if(abundance_type == "pathway") {
+    pdf(output_plot,width=10) 
+    } else {
+      pdf(output_plot)
+    }
+    print(myplot)
+    dev.off()
+    return(frequency_table)
+  }
+  all_microbiome_functions = gene_functions_func(microbiome_data,paste(abundance_type,cutoff,"all_microbiome_functions_before_onset.pdf",sep="_"))
+  sero_microbiome_functions = gene_functions_func(microbiome_data[grep("healthy_pre-sero",microbiome_data)],paste(abundance_type,cutoff,"sero_microbiome_functions_before_onset.pdf",sep="_"))
+  MIAA_microbiome_functions = gene_functions_func(microbiome_data[grep("healthy_pre-MIAA",microbiome_data)],paste(abundance_type,cutoff,"MIAA_microbiome_functions_before_onset.pdf",sep="_"))
+  IA2A_microbiome_functions = gene_functions_func(microbiome_data[grep("healthy_pre-IA2A",microbiome_data)],paste(abundance_type,cutoff,"IA2A_microbiome_functions_before_onset.pdf",sep="_"))
+  GAD_microbiome_functions = gene_functions_func(microbiome_data[grep("healthy_pre-GAD",microbiome_data)],paste(abundance_type,"GAD_microbiome_functions_before_onset.pdf",sep="_"))
+  T1D_microbiome_functions = gene_functions_func(microbiome_data[grep("healthy_pre-t1d",microbiome_data)],paste(abundance_type,cutoff,"T1D_microbiome_functions_before_onset.pdf",sep="_"))
+  
+  #get all coefficients
+  #names(functions_list) = microbiome_data_param
+  #function_list_temp_list = lapply(1:length(functions_list), function(myind) {
+  all_functions = lapply(microbiome_data, function(myrds) {
+    mylist = readRDS(myrds)
+    function_list_temp = mylist[[3]]
+    if(class(function_list_temp)[1] == "dgCMatrix") {
+      function_list_temp = as.matrix(function_list_temp)
+      function_list_temp = as.data.frame(function_list_temp)
+      colnames(function_list_temp)[1] = c("coef")
+    }
+    else {
+      function_list_temp = as.data.frame(function_list_temp)
+      colnames(function_list_temp)[1] = c("coef")
+    }
+    function_list_temp$file = myrds
+    return(function_list_temp)
+  })
+  all_functions = do.call("rbind",all_functions)
+  write.csv(all_functions,file=paste(abundance_type,cutoff,"_before_vs_after_sig_genes_table.csv",sep=""))
+  return(list(AUC_df,all_functions))
+}
+
+pathway_stats = get_AUCs_functions_with_cutoff(abundance_type="pathway",cutoff=0.3)
+mean(pathway_stats[[1]][,2]) # 0.8686111
+```
+
