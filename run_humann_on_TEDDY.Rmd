@@ -523,19 +523,54 @@ do
 sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 scripts/run_lasso_survival_bulk.bash ${x} microbiome,fdr,grs2 fdr,grs2 all 1 C
 done
 
+for x in models_input_files_parsed_v4_species_no_header_no_before_condition_no_healthy_pret1d_*
+do
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 scripts/run_lasso_survival_bulk.bash ${x} microbiome,fdr,grs2,Sex fdr,grs2,Sex all 1 C
+done
+
+
 for x in models_input_files_parsed_v4_species_no_header_no_before_condition_healthy_pret1d_*
 do
 sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 scripts/run_lasso_survival_bulk.bash ${x} microbiome,number_autoantibodies,fdr,grs2 number_autoantibodies,fdr,grs2 all 1 C
 done
+
+for x in models_input_files_parsed_v4_species_no_header_no_before_condition_healthy_pret1d_*
+do
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 scripts/run_lasso_survival_bulk.bash ${x} microbiome,fdr,grs2 fdr,grs2 all 1 C
+done
+
+
+for x in models_input_files_parsed_v4_species_no_header_no_before_condition_healthy_pret1d_*
+do
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 scripts/run_lasso_survival_bulk.bash ${x} microbiome,number_autoantibodies,fdr,grs2,Sex number_autoantibodies,fdr,grs2,Sex all 1 C
+done
+
 
 for x in models_input_files_parsed_v4_pathway_no_header_no_before_condition_no_healthy_pret1d_*
 do
 sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 scripts/run_lasso_survival_bulk.bash ${x} microbiome,fdr,grs2 fdr,grs2 all 1 C
 done
 
+for x in models_input_files_parsed_v4_pathway_no_header_no_before_condition_no_healthy_pret1d_*
+do
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 scripts/run_lasso_survival_bulk.bash ${x} microbiome,fdr,grs2,Sex fdr,grs2,Sex all 1 C
+done
+
+
 for x in models_input_files_parsed_v4_pathway_no_header_no_before_condition_healthy_pret1d_*
 do
 sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 scripts/run_lasso_survival_bulk.bash ${x} microbiome,number_autoantibodies,fdr,grs2 number_autoantibodies,fdr,grs2 all 1 C
+done
+
+for x in models_input_files_parsed_v4_pathway_no_header_no_before_condition_healthy_pret1d_*
+do
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 scripts/run_lasso_survival_bulk.bash ${x} microbiome,fdr,grs2 fdr,grs2 all 1 C
+done
+
+
+for x in models_input_files_parsed_v4_pathway_no_header_no_before_condition_healthy_pret1d_*
+do
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 scripts/run_lasso_survival_bulk.bash ${x} microbiome,number_autoantibodies,fdr,grs2 number_autoantibodies,fdr,grs2,Sex all 1 C
 done
 
 ```
@@ -550,7 +585,14 @@ grep "healthy_pre-t1d" /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/inp
 
 sbatch -n 1 -c 1 --mem=5G -p short -t 0-02:00 scripts/run_lasso_survival_bulk.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/input_files_ttest_sig_for_survival_v4_pathways_species_no_healthyT1d.csv microbiome,fdr,grs2 fdr,grs2 ttest_sig 1 C
 
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-02:00 scripts/run_lasso_survival_bulk.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/input_files_ttest_sig_for_survival_v4_pathways_species_no_healthyT1d.csv microbiome,fdr,grs2,Sex fdr,grs2,Sex ttest_sig 1 C
+
+
 sbatch -n 1 -c 1 --mem=5G -p short -t 0-02:00 scripts/run_lasso_survival_bulk.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/input_files_ttest_sig_for_survival_v4_pathways_species_healthyT1d.csv microbiome,number_autoantibodies,fdr,grs2 number_autoantibodies,fdr,grs2 ttest_sig 1 C
+
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-02:00 scripts/run_lasso_survival_bulk.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/input_files_ttest_sig_for_survival_v4_pathways_species_healthyT1d.csv microbiome,fdr,grs2 fdr,grs2 ttest_sig 1 C
+
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-02:00 scripts/run_lasso_survival_bulk.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/input_files_ttest_sig_for_survival_v4_pathways_species_healthyT1d.csv microbiome,number_autoantibodies,fdr,grs2,Sex number_autoantibodies,fdr,grs2,Sex ttest_sig 1 C
 
 while read line
 do
@@ -559,7 +601,22 @@ done < input_files_ttest_sig_for_survival_v4_pathways_species_no_healthyT1d.csv
 
 while read line
 do
+sbatch -n 1 -c 1 --mem=10G -p short -t 0-02:00 scripts/run_rf_survival.bash ${line} microbiome,fdr,grs2,Sex fdr,grs2,Sex ttest_sig 1 C
+done < input_files_ttest_sig_for_survival_v4_pathways_species_no_healthyT1d.csv
+
+while read line
+do
 sbatch -n 1 -c 1 --mem=10G -p short -t 0-02:00 scripts/run_rf_survival.bash ${line} microbiome,number_autoantibodies,fdr,grs2 number_autoantibodies,fdr,grs2 ttest_sig 1 C
+done < input_files_ttest_sig_for_survival_v4_pathways_species_healthyT1d.csv
+
+while read line
+do
+sbatch -n 1 -c 1 --mem=10G -p short -t 0-02:00 scripts/run_rf_survival.bash ${line} microbiome,fdr,grs2 fdr,grs2 ttest_sig 1 C
+done < input_files_ttest_sig_for_survival_v4_pathways_species_healthyT1d.csv
+
+while read line
+do
+sbatch -n 1 -c 1 --mem=10G -p short -t 0-02:00 scripts/run_rf_survival.bash ${line} microbiome,number_autoantibodies,fdr,grs2,Sex number_autoantibodies,fdr,grs2,Sex ttest_sig 1 C
 done < input_files_ttest_sig_for_survival_v4_pathways_species_healthyT1d.csv
 
 ```

@@ -93,21 +93,55 @@ do
 sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 scripts/run_lasso_binary_bulk.bash ${x} microbiome,fdr,grs2 fdr,grs2 all 1 NA
 done
 
+for x in models_input_files_parsed_v4_species_no_header_no_healthy_pret1d_*
+do
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 scripts/run_lasso_binary_bulk.bash ${x} microbiome,fdr,grs2,Sex fdr,grs2,Sex all 1 NA
+done
+
+
 for x in models_input_files_parsed_v4_species_no_header_healthy_pret1d_*
 do
 sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 scripts/run_lasso_binary_bulk.bash ${x} microbiome,number_autoantibodies,fdr,grs2 number_autoantibodies,fdr,grs2 all 1 NA
 done
+
+for x in models_input_files_parsed_v4_species_no_header_healthy_pret1d_*
+do
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 scripts/run_lasso_binary_bulk.bash ${x} microbiome,fdr,grs2 fdr,grs2 all 1 NA
+done
+
+
+for x in models_input_files_parsed_v4_species_no_header_healthy_pret1d_*
+do
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 scripts/run_lasso_binary_bulk.bash ${x} microbiome,number_autoantibodies,fdr,grs2,Sex number_autoantibodies,fdr,grs2,Sex all 1 NA
+done
+
 
 for x in models_input_files_parsed_v4_pathway_no_header_no_healthy_pret1d_*
 do
 sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 scripts/run_lasso_binary_bulk.bash ${x} microbiome,fdr,grs2 fdr,grs2 all 1 NA
 done
 
+for x in models_input_files_parsed_v4_pathway_no_header_no_healthy_pret1d_*
+do
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 scripts/run_lasso_binary_bulk.bash ${x} microbiome,fdr,grs2,Sex fdr,grs2,Sex all 1 NA
+done
+
+
 for x in models_input_files_parsed_v4_pathway_no_header_healthy_pret1d_*
 do
 sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 scripts/run_lasso_binary_bulk.bash ${x} microbiome,number_autoantibodies,fdr,grs2 number_autoantibodies,fdr,grs2 all 1 NA
 done
 
+for x in models_input_files_parsed_v4_pathway_no_header_healthy_pret1d_*
+do
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 scripts/run_lasso_binary_bulk.bash ${x} microbiome,fdr,grs2 fdr,grs2 all 1 NA
+done
+
+
+for x in models_input_files_parsed_v4_pathway_no_header_healthy_pret1d_*
+do
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 scripts/run_lasso_binary_bulk.bash ${x} microbiome,number_autoantibodies,fdr,grs2,Sex number_autoantibodies,fdr,grs2,Sex all 1 NA
+done
 
 ```
 
@@ -127,9 +161,26 @@ do
 sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 scripts/run_lasso_binary_bulk.bash ${x} microbiome,fdr,grs2 fdr,grs2 ttest_sig 1 NA
 done
 
+for x in input_files_ttest_sig_v4_pathways_species_no_healthyT1d_*
+do
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 scripts/run_lasso_binary_bulk.bash ${x} microbiome,fdr,grs2,Sex fdr,grs2,Sex ttest_sig 1 NA
+done
+
+
 for x in input_files_ttest_sig_v4_pathways_species_healthyT1d_*
 do
 sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 scripts/run_lasso_binary_bulk.bash ${x} microbiome,number_autoantibodies,fdr,grs2 number_autoantibodies,fdr,grs2 ttest_sig 1 NA
+done
+
+for x in input_files_ttest_sig_v4_pathways_species_healthyT1d_*
+do
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 scripts/run_lasso_binary_bulk.bash ${x} microbiome,fdr,grs2 fdr,grs2 ttest_sig 1 NA
+done
+
+
+for x in input_files_ttest_sig_v4_pathways_species_healthyT1d_*
+do
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-01:00 scripts/run_lasso_binary_bulk.bash ${x} microbiome,number_autoantibodies,fdr,grs2,Sex number_autoantibodies,fdr,grs2,Sex ttest_sig 1 NA
 done
 
 
@@ -138,10 +189,28 @@ do
 sbatch -n 1 -c 1 --mem=5G -p short -t 0-04:00 scripts/run_rf_bulk.bash ${x} microbiome,fdr,grs2 fdr,grs2 ttest_sig 1 NA
 done
 
+for x in input_files_ttest_sig_v4_pathways_species_no_healthyT1d_*
+do
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-04:00 scripts/run_rf_bulk.bash ${x} microbiome,fdr,grs2 fdr,grs2 ttest_sig 1 NA
+done
+
+
 for x in input_files_ttest_sig_v4_pathways_species_healthyT1d_*
 do
 sbatch -n 1 -c 1 --mem=5G -p short -t 0-04:00 scripts/run_rf_bulk.bash ${x} microbiome,number_autoantibodies,fdr,grs2 number_autoantibodies,fdr,grs2 ttest_sig 1 NA
 done
+
+for x in input_files_ttest_sig_v4_pathways_species_healthyT1d_*
+do
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-04:00 scripts/run_rf_bulk.bash ${x} microbiome,fdr,grs2 fdr,grs2 ttest_sig 1 NA
+done
+
+
+for x in input_files_ttest_sig_v4_pathways_species_healthyT1d_*
+do
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-04:00 scripts/run_rf_bulk.bash ${x} microbiome,number_autoantibodies,fdr,grs2,Sex number_autoantibodies,fdr,grs2,Sex ttest_sig 1 NA
+done
+
 
 ```
 

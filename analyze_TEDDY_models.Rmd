@@ -85,6 +85,7 @@ setkey(prokka_annotations,V1)
 
 get_top_genes_in_models = function(fileNames,output_name,raw_gene=FALSE,is_species=FALSE,is_pathway=FALSE) { # if raw gene is false then get function of gene
   prokka_annotations_each_model = lapply(fileNames, function(myfile) {
+    print(myfile)
     if(grepl("lasso_time_to_event",basename(myfile))) {
       model = "lasso_cox-regression"
     } else if(grepl("output_random_forest_time_to_event_",basename(myfile))) {
@@ -150,8 +151,10 @@ get_top_genes_in_models = function(fileNames,output_name,raw_gene=FALSE,is_speci
     fdr_index = fdr_index[!is.na(fdr_index)]
     grs2_index = match("grs2",rownames(coefs))
     grs2_index= grs2_index[!is.na(grs2_index)]
+    sex_index = match("Sex",rownames(coefs))
+    sex_index= sex_index[!is.na(sex_index)]
     number_auto_indexes = grep("number_autoantibodies",rownames(coefs))
-    clinical_indexes = c(fdr_index,grs2_index,number_auto_indexes)
+    clinical_indexes = c(fdr_index,grs2_index,sex_index,number_auto_indexes)
     if(length(clinical_indexes) < nrow(coefs)) {
       # remove clincica indexes
       if(length(clinical_indexes) >0) {
@@ -338,8 +341,8 @@ pdf("jaccard_similarity_hist.pdf")
 hist(jaccard_dist_upper,xlab=c("Jaccard Similarity"),main=c(""))
 dev.off()
 
-sum(jaccard_dist_upper==1) # 1569
-mean(jaccard_dist_upper) # 0.008095909
+sum(jaccard_dist_upper==1) # 1124
+mean(jaccard_dist_upper) # 0.006482245
 
 pdf("jaccard_similarity_hist_log2.pdf")
 hist(log2(jaccard_dist_upper + min(jaccard_dist_upper[jaccard_dist_upper>0])))
@@ -770,7 +773,7 @@ create_specification_curve = function(mydf,output_file_name,include_sample_plot=
   #col_fun = colorRamp2(seq(0,400,50), pals::alphabet(n=length(seq(0,400,50))))
   #color_vec = c('1'="red",'2'="blue",'3'="green",'4'="black")
   library(circlize)
-  color_vec = colorRamp2(breaks=c(min(mydf$sample_number),max(mydf$sample_number)), colors=c("white","black"))
+  color_vec = colorRamp2(breaks=c(min(mydf$sample_number2),max(mydf$sample_number2)), colors=c("white","black"))
   #color_vec = mydf$sample_number2
   #color_vec[color_vec>=1 & color_vec <50] = "#F0A0FF"
   #color_vec[color_vec>=50 & color_vec <100] = "#0075DC"
@@ -794,6 +797,103 @@ draw(ht,padding = unit(c(0, 10, 2, 2), "mm"))
   dev.off()
 }
 
+create_specification_curve_with_study = function(mydf,output_file_name,include_sample_plot=FALSE) {
+  # first check if we have more than one level for each variable of interest
+  variables_of_interest = c()
+  for (x in c("condition","baseline","time_before_event","HLA","proportion_train","model","loss_function","feature_selection_method","microbiome_type","weighted","features","horizon_time")) {
+    num_unique_vals = unique(mydf[,x])
+    num_unique_vals = num_unique_vals[!is.na(num_unique_vals)]
+    num_unique_vals = length(num_unique_vals)
+    if(num_unique_vals>1) {
+      variables_of_interest = c(variables_of_interest,x)
+    }
+  }
+  variables_of_interest = paste(variables_of_interest,collapse=" + ")
+  variables_of_interest = paste("~",variables_of_interest,sep="")
+  variables_of_interest = as.formula(variables_of_interest)
+  
+  mydum_vars = dummyVars(variables_of_interest, data=mydf)
+  
+  losso_cox_res_high_case_mat = predict(mydum_vars,mydf)
+  colnames(losso_cox_res_high_case_mat) = gsub("^condition","condition:",colnames(losso_cox_res_high_case_mat))
+  colnames(losso_cox_res_high_case_mat) = gsub("^baseline","baseline:",colnames(losso_cox_res_high_case_mat))
+  colnames(losso_cox_res_high_case_mat) = gsub("^HLA","HLA:",colnames(losso_cox_res_high_case_mat))
+  colnames(losso_cox_res_high_case_mat)  = gsub("^proportion_train","proportion_train:",colnames(losso_cox_res_high_case_mat))
+  colnames(losso_cox_res_high_case_mat) = gsub("^model","model:",colnames(losso_cox_res_high_case_mat))
+  colnames(losso_cox_res_high_case_mat) = gsub("^loss_function","loss_function:",colnames(losso_cox_res_high_case_mat))
+  colnames(losso_cox_res_high_case_mat) = gsub("^feature_selection_method","feature_selection_method:",colnames(losso_cox_res_high_case_mat))
+  colnames(losso_cox_res_high_case_mat) = gsub("^microbiome_type","microbiome_type:",colnames(losso_cox_res_high_case_mat))
+  colnames(losso_cox_res_high_case_mat) = gsub("^features","features:",colnames(losso_cox_res_high_case_mat))
+  colnames(losso_cox_res_high_case_mat) = gsub("^time_before_event","time_before_event:",colnames(losso_cox_res_high_case_mat))
+  colnames(losso_cox_res_high_case_mat) = gsub("^weighted","weighted:",colnames(losso_cox_res_high_case_mat))
+  losso_cox_res_high_case_mat = as.data.frame(losso_cox_res_high_case_mat)
+  losso_cox_res_high_case_mat = t(losso_cox_res_high_case_mat)
+  anno1 = AnnotationFunction(
+    fun = function(index, k, n) {
+        n = length(index)
+        pushViewport(viewport(xscale = c(0.5, n + 0.5), yscale = c(0.5, 1)))
+        grid.rect()
+        grid.segments(1:n, x$lower_CI_AUC, 1:n, x$upper_CI_AUC[index], default.units = "native")
+        grid.points(1:n, x$AUC[index], default.units = "native",size=unit(1, "mm"),gp =gpar(col="red"))
+        # the below will show the point with the max sample size
+        #grid.points(1107, 0.9, default.units = "native",size=unit(1, "mm"))
+        if(k == 1) grid.yaxis()
+        popViewport()
+    },
+    var_import = list(x = mydf),
+    n = nrow(mydf),
+    subsetable = TRUE,
+    height = unit(2, "cm")
+  )
+  anno2 = AnnotationFunction(
+    fun = function(index, k, n) {
+        n = length(index)
+        pushViewport(viewport(xscale = c(0.5, n + 0.5), yscale = c(min(x$sample_number2), max(x$sample_number2))))
+        grid.rect()
+        grid.points(1:n, x$sample_number2[index], default.units = "native",size=unit(1, "mm"),gp =gpar(col="red"))
+        if(k == 1) grid.yaxis(main=FALSE)
+        popViewport()
+    },
+    var_import = list(x = mydf),
+    n = nrow(mydf),
+    subsetable = TRUE,
+    height = unit(1, "cm")
+  )
+
+  #col_fun = colorRamp2(c(min(mydf$sample_number2), max(mydf$sample_number2)), c("blue", "red"))
+  
+  #col_fun = colorRamp2(seq(0,400,50), pals::alphabet(n=length(seq(0,400,50))))
+  #color_vec = c('1'="red",'2'="blue",'3'="green",'4'="black")
+  library(circlize)
+  color_vec = colorRamp2(breaks=c(min(mydf$sample_number2),max(mydf$sample_number2)), colors=c("white","black"))
+  
+  study_color_vec = polychrome(6)
+  names(study_color_vec) = c("Vatanen","none","Stewart","Zhang","Stewart and Vatanen","Zhang and Stewart")
+  
+  #color_vec = mydf$sample_number2
+  #color_vec[color_vec>=1 & color_vec <50] = "#F0A0FF"
+  #color_vec[color_vec>=50 & color_vec <100] = "#0075DC"
+  #color_vec[color_vec>=100 & color_vec <150] = "#993F00"
+  #color_vec[color_vec>=150 & color_vec <200] = "#4C005C"
+  #color_vec[color_vec>=200 & color_vec <250] = "#191919"
+  #color_vec[color_vec>=250 & color_vec <300] = "#005C31"
+  #color_vec[color_vec>=300 & color_vec <350] = "#2BCE48"
+  #color_vec[color_vec>=350 & color_vec <400] = "#FFCC99"
+  #names(color_vec) = mydf$sample_number2
+  
+  colors = structure(c("#e0dcdc","#b04488"), names = c('0', '1'))
+  
+  pdf(output_file_name,width=10)
+  if(include_sample_plot==TRUE) {
+    ht = Heatmap(losso_cox_res_high_case_mat,cluster_rows=FALSE,cluster_columns=FALSE,column_labels=rep("",ncol(losso_cox_res_high_case_mat)),top_annotation = HeatmapAnnotation(AUC=anno1,samples1=anno2,samples=mydf$sample_number,study=mydf$study,col=list(samples=color_vec,study=study_color_vec),annotation_label=c("AUC"," ","samples","study")),col=colors,name = "feature")
+  } else {
+    ht = Heatmap(losso_cox_res_high_case_mat,cluster_rows=FALSE,cluster_columns=FALSE,column_labels=rep("",ncol(losso_cox_res_high_case_mat)),top_annotation = HeatmapAnnotation(AUC=anno1,samples=mydf$sample_number,study=mydf$study,col=list(samples=color_vec,study=study_color_vec),annotation_label=c("AUC","samples","study")),col=colors,name = "feature")
+  }
+draw(ht,padding = unit(c(0, 10, 2, 2), "mm"))
+  dev.off()
+}
+
+
 create_specification_curve(mydf=losso_cox_res_high_case,output_file_name="AUC_condition_heatmap_with_CIs2.pdf")
 
 #make a specification curve without before condition and without only clincal variables
@@ -808,13 +908,53 @@ losso_cox_res_high_case_no_before_condition_microbiome_only = losso_cox_res_high
 
 losso_cox_res_high_case_before_condition_only = losso_cox_res_high_case[losso_cox_res_high_case$time_before_event == "before_condition_age_controlled",]
 
-mean(losso_cox_res_high_case_no_before_condition$sample_number)
-sd(losso_cox_res_high_case_no_before_condition$sample_number)
+mean(losso_cox_res_high_case_no_before_condition$sample_number2) # 111.5999
+sd(losso_cox_res_high_case_no_before_condition$sample_number2) #77.23072
 pdf("sample_number_hist.pdf")
-ggplot(losso_cox_res_high_case_no_before_condition, aes(x=sample_number)) + geom_histogram(color="black", fill="white") + theme_classic() + xlab("Sample Size")
+ggplot(losso_cox_res_high_case_no_before_condition, aes(x=sample_number2)) + geom_histogram(color="black", fill="white") + theme_classic() + xlab("Sample Size")
 dev.off()
 
 create_specification_curve(mydf=losso_cox_res_high_case_no_before_condition,output_file_name="AUC_condition_heatmap_with_CIs_no_before_condition.pdf")
+
+is_Vatanen = rep("Vatanen",nrow(losso_cox_res_high_case_no_before_condition))
+is_Zhang = rep("Zhang",nrow(losso_cox_res_high_case_no_before_condition))
+is_Stewart = rep("Stewart",nrow(losso_cox_res_high_case_no_before_condition))
+is_Zhang[losso_cox_res_high_case_no_before_condition$condition == "healthy_pre-t1d"] = "NA"
+is_Zhang[losso_cox_res_high_case_no_before_condition$baseline != "NA"] = "NA"
+is_Stewart[losso_cox_res_high_case_no_before_condition$baseline == "12month"] = "NA"
+is_Stewart[losso_cox_res_high_case_no_before_condition$baseline == "18month"] = "NA"
+is_Stewart[losso_cox_res_high_case_no_before_condition$baseline == "6month"] = "NA"
+is_Stewart[losso_cox_res_high_case_no_before_condition$baseline == "all"] = "NA"
+is_Vatanen[losso_cox_res_high_case_no_before_condition$baseline != "24month"] = "NA"
+is_Stewart[losso_cox_res_high_case_no_before_condition$HLA != "all_HLA"] = "NA"
+is_Vatanen[losso_cox_res_high_case_no_before_condition$microbiome_type == "gene"] = "NA"
+is_Vatanen[losso_cox_res_high_case_no_before_condition$microbiome_type == "none"] = "NA"
+is_Stewart[losso_cox_res_high_case_no_before_condition$microbiome_type == "gene"] = "NA"
+is_Stewart[losso_cox_res_high_case_no_before_condition$microbiome_type == "none"] = "NA"
+is_Stewart[losso_cox_res_high_case_no_before_condition$microbiome_type == "pathway"] = "NA"
+is_Zhang[losso_cox_res_high_case_no_before_condition$microbiome_type == "gene"] = "NA"
+is_Zhang[losso_cox_res_high_case_no_before_condition$microbiome_type == "none"] = "NA"
+is_Zhang[losso_cox_res_high_case_no_before_condition$microbiome_type == "pathway"] = "NA"
+is_Zhang[losso_cox_res_high_case_no_before_condition$features != "microbiome"] = "NA"
+is_Stewart[losso_cox_res_high_case_no_before_condition$features != "microbiome"] = "NA"
+is_Vatanen[losso_cox_res_high_case_no_before_condition$features != "microbiome"] = "NA"
+
+study_for_specification = rep("none",nrow(losso_cox_res_high_case_no_before_condition))
+study_for_specification[is_Zhang == "Zhang"] = "Zhang"
+study_for_specification[is_Stewart == "Stewart"] = "Stewart"
+study_for_specification[is_Vatanen == "Vatanen"] = "Vatanen"
+study_for_specification[is_Zhang == "Zhang" & is_Stewart == "Stewart"] = "Zhang and Stewart"
+study_for_specification[is_Zhang == "Zhang" & is_Vatanen == "Vatanen"] = "Zhang and Vatanen"
+study_for_specification[is_Stewart == "Stewart" & is_Vatanen == "Vatanen"] = "Stewart and Vatanen"
+study_for_specification[is_Stewart == "Stewart" & is_Vatanen == "Vatanen" & is_Zhang == "Zhang"] = "all"
+
+losso_cox_res_high_case_no_before_condition$study = study_for_specification 
+
+num_studies_in_cat = table(losso_cox_res_high_case_no_before_condition$study)
+(1-(as.numeric(num_studies_in_cat[names(num_studies_in_cat) == "none"])/nrow(losso_cox_res_high_case_no_before_condition))) * 100 # 4.39% of specifications have been done by other studies
+
+create_specification_curve_with_study(mydf=losso_cox_res_high_case_no_before_condition,output_file_name="AUC_condition_heatmap_with_CIs_no_before_condition_with_study.pdf")
+
 
 create_specification_curve(mydf=losso_cox_res_high_case_before_condition_only,output_file_name="AUC_condition_heatmap_with_CIs_before_condition_only.pdf",include_sample_plot = TRUE)
 
@@ -835,12 +975,15 @@ AUC_prediction_res = lm(AUC ~ condition + baseline + HLA + proportion_train + mo
 library(sjPlot)
 plot_model(AUC_prediction_res, show.values = TRUE, value.offset = 0.3,sort.est=TRUE)
 
-AUC_prediction_res2 = lm(AUC ~ condition + baseline + HLA + proportion_train + model + feature_selection_method + microbiome_type + weighted + sample_number + features +  horizon_time,data=losso_cox_res_high_case_no_before_condition)
+AUC_prediction_res2 = lm(AUC ~ condition + baseline + HLA + proportion_train + model + feature_selection_method + microbiome_type + weighted + sample_number2 + features +  horizon_time,data=losso_cox_res_high_case_no_before_condition)
 
 AUC_prediction_res3 = lm(AUC ~ uses_Microbiome + usesGRS2 + uses_num_autoantibodies + uses_FDR,data=losso_cox_res_high_case_no_before_condition)
 
+pdf("best_predictors_by_AUC_large_labels.pdf",width=10)
+plot_model(AUC_prediction_res2, show.values = TRUE, value.offset = 0.3,sort.est=TRUE,dot.size=1) + theme_classic() + ggtitle("") + theme(axis.text.x=element_text(size=10),axis.text.y=element_text(size=15)) + ylim(-0.3,0.3)
+dev.off()
 pdf("best_predictors_by_AUC.pdf")
-plot_model(AUC_prediction_res2, show.values = TRUE, value.offset = 0.3,sort.est=TRUE,dot.size=1) + theme_classic() + ggtitle("")
+plot_model(AUC_prediction_res2, show.values = TRUE, value.offset = 0.3,sort.est=TRUE,dot.size=1) + theme_classic() + ggtitle("") + theme(axis.text.x=element_text(size=10))
 dev.off()
 
 plot_model(AUC_prediction_res3, show.values = TRUE, value.offset = 0.3,sort.est=TRUE)
@@ -892,6 +1035,18 @@ create_specification_curve(mydf=losso_cox_res_high_case_before_condition_IA2A,ou
 create_specification_curve(mydf=losso_cox_res_high_case_before_condition_MIAA,output_file_name="AUC_before_condition_heatmap_with_CIs_MIAA_pway.pdf")
 create_specification_curve(mydf=losso_cox_res_high_case_before_condition_sero_T1D,output_file_name="AUC_before_condition_heatmap_with_CIs_sero_T1D_pway.pdf")
 
+#losso_cox_res = read.csv("lasso_rf_regression_output_df_with_AUCs.csv")
+# remove AUC NAs
+#losso_cox_res = losso_cox_res[!is.na(losso_cox_res$AUC),] # 4148 models
+#losso_cox_res = losso_cox_res[order(losso_cox_res$AUC),]
+
+#losso_cox_res$rank = 1:nrow(losso_cox_res)
+
+
+#library(plotly)
+
+#plot_ly(data = losso_cox_res, x = ~rank, y = ~AUC,color=~condition,type="scatter",
+#        text = ~paste("HLA: ", HLA, '<br>cases_horizon:', cases_time_horizon,'<br>survivors_horizon:',survivors_time_horizon,'<br>condition:',condition,'<br>baseline',baseline,'<br>horizon',horizon_time,'<br>total_samples:',sample_number, '<br>CI:',paste(round(lower_CI_AUC,4),round(upper_CI_AUC,4),sep="-")))
 
 ```
 
@@ -903,11 +1058,13 @@ library(dplyr)
 library(reshape2)
 losso_cox_res_high_case_alluvial = losso_cox_res_high_case_no_before_condition[,c("condition","baseline","HLA","proportion_train","model","feature_selection_method","microbiome_type","weighted","features","horizon_time")]
 losso_cox_res_high_case_alluvial$baseline[losso_cox_res_high_case_alluvial$baseline == "NA"] = "all"
+colnames(losso_cox_res_high_case_alluvial)[2] = c("baseline")
 
-losso_cox_res_high_case_alluvial = unique(losso_cox_res_high_case_alluvial)
+losso_cox_res_high_case_alluvial$Freq = 1
+#losso_cox_res_high_case_alluvial = unique(losso_cox_res_high_case_alluvial)
 
-losso_cox_res_high_case_alluvial = losso_cox_res_high_case_alluvial %>% group_by(condition,baseline,HLA,proportion_train,model,feature_selection_method,microbiome_type,weighted,features,horizon_time) %>% tally()
-colnames(losso_cox_res_high_case_alluvial)[11] = "Freq"
+#losso_cox_res_high_case_alluvial = losso_cox_res_high_case_alluvial %>% group_by(condition,baseline,HLA,proportion_train,model,feature_selection_method,microbiome_type,weighted,features,horizon_time) %>% tally()
+#colnames(losso_cox_res_high_case_alluvial)[11] = "Freq"
 
 #losso_cox_res_high_case_alluvial = losso_cox_res_high_case_alluvial[-which(losso_cox_res_high_case_alluvial$time_before_event=="before_condition"),]
 library(scales)
@@ -920,6 +1077,12 @@ dev.off()
 pdf("stratum_plot.pdf",width=15,height=7)
 ggplot(losso_cox_res_high_case_alluvial,aes(y = Freq, axis1 = baseline,axis2=HLA,axis3=proportion_train,axis4=feature_selection_method,axis5=model,axis6=weighted,axis7=microbiome_type,axis8=features,axis9=horizon_time)) + geom_stratum(width = 1/12) + geom_label(stat = "stratum", aes(label = after_stat(stratum))) + theme_classic() + theme(legend.position="bottom")
 dev.off()
+
+
+
+
+
+
 
 losso_cox_res_high_case_alluvial_v2 = losso_cox_res_high_case_alluvial
 losso_cox_res_high_case_alluvial_v2$Freq = losso_cox_res_high_case_alluvial_v2$Freq/nrow(losso_cox_res_high_case_alluvial_v2)
@@ -939,7 +1102,73 @@ losso_cox_res_high_case_alluvial_df_melted = do.call("rbind",lapply(1:ncol(losso
   return(percent_specifide)
 }))
 
-ggplot(losso_cox_res_high_case_alluvial_df_melted, aes(y=Freq,))
+losso_cox_res_high_case_alluvial_df_melted$study = "none"
+losso_cox_res_high_case_alluvial_df_melted$study[losso_cox_res_high_case_alluvial_df_melted$mycol == "healthy_pre-GAD" & losso_cox_res_high_case_alluvial_df_melted$specification == "condition"] = "all"
+losso_cox_res_high_case_alluvial_df_melted$study[losso_cox_res_high_case_alluvial_df_melted$mycol == "healthy_pre-IA2A"& losso_cox_res_high_case_alluvial_df_melted$specification == "condition"] =  "all"
+losso_cox_res_high_case_alluvial_df_melted$study[losso_cox_res_high_case_alluvial_df_melted$mycol == "healthy_pre-MIAA" & losso_cox_res_high_case_alluvial_df_melted$specification == "condition"] =  "all"
+losso_cox_res_high_case_alluvial_df_melted$study[losso_cox_res_high_case_alluvial_df_melted$mycol == "healthy_pre-sero" & losso_cox_res_high_case_alluvial_df_melted$specification == "condition"] =  "all"
+losso_cox_res_high_case_alluvial_df_melted$study[losso_cox_res_high_case_alluvial_df_melted$mycol == "healthy_pre-t1d" & losso_cox_res_high_case_alluvial_df_melted$specification == "condition"] =  "Stewart and Vatanen"
+
+losso_cox_res_high_case_alluvial_df_melted$study[losso_cox_res_high_case_alluvial_df_melted$mycol == "12month-18month" & losso_cox_res_high_case_alluvial_df_melted$specification == "baseline"] =  "Stewart"
+losso_cox_res_high_case_alluvial_df_melted$study[losso_cox_res_high_case_alluvial_df_melted$mycol == "18month-24month" & losso_cox_res_high_case_alluvial_df_melted$specification == "baseline"] =  "Stewart"
+losso_cox_res_high_case_alluvial_df_melted$study[losso_cox_res_high_case_alluvial_df_melted$mycol == "6month-12month" & losso_cox_res_high_case_alluvial_df_melted$specification == "baseline"] =  "Stewart"
+losso_cox_res_high_case_alluvial_df_melted$study[losso_cox_res_high_case_alluvial_df_melted$mycol == "12month" & losso_cox_res_high_case_alluvial_df_melted$specification == "baseline"] =  "none"
+losso_cox_res_high_case_alluvial_df_melted$study[losso_cox_res_high_case_alluvial_df_melted$mycol == "18month" & losso_cox_res_high_case_alluvial_df_melted$specification == "baseline"] =  "none"
+losso_cox_res_high_case_alluvial_df_melted$study[losso_cox_res_high_case_alluvial_df_melted$mycol == "24month" & losso_cox_res_high_case_alluvial_df_melted$specification == "baseline"] =  "Vatanen"
+losso_cox_res_high_case_alluvial_df_melted$study[losso_cox_res_high_case_alluvial_df_melted$mycol == "all" & losso_cox_res_high_case_alluvial_df_melted$specification == "baseline"] =  "Zhang"
+losso_cox_res_high_case_alluvial_df_melted$study[losso_cox_res_high_case_alluvial_df_melted$mycol == "all_HLA" & losso_cox_res_high_case_alluvial_df_melted$specification == "HLA"] =  "all"
+losso_cox_res_high_case_alluvial_df_melted$study[losso_cox_res_high_case_alluvial_df_melted$mycol == "DR3_DR3_only" & losso_cox_res_high_case_alluvial_df_melted$specification == "HLA"] =  "none"
+losso_cox_res_high_case_alluvial_df_melted$study[losso_cox_res_high_case_alluvial_df_melted$mycol == "DR3_DR4_only" & losso_cox_res_high_case_alluvial_df_melted$specification == "HLA"] =  "none"
+losso_cox_res_high_case_alluvial_df_melted$study[losso_cox_res_high_case_alluvial_df_melted$mycol == "DR4_DR4_only" & losso_cox_res_high_case_alluvial_df_melted$specification == "HLA"] =  "none"
+losso_cox_res_high_case_alluvial_df_melted$study[losso_cox_res_high_case_alluvial_df_melted$mycol == "DR4_DR8_only" & losso_cox_res_high_case_alluvial_df_melted$specification == "HLA"] =  "none"
+losso_cox_res_high_case_alluvial_df_melted$study[losso_cox_res_high_case_alluvial_df_melted$mycol == "2-3rds" & losso_cox_res_high_case_alluvial_df_melted$specification == "proportion_train"] =  "NA"
+losso_cox_res_high_case_alluvial_df_melted$study[losso_cox_res_high_case_alluvial_df_melted$mycol == "50-50" & losso_cox_res_high_case_alluvial_df_melted$specification == "proportion_train"] =  "NA"
+losso_cox_res_high_case_alluvial_df_melted$study[losso_cox_res_high_case_alluvial_df_melted$mycol == "lasso_cox-regression" & losso_cox_res_high_case_alluvial_df_melted$specification == "model"] =  "NA"
+losso_cox_res_high_case_alluvial_df_melted$study[losso_cox_res_high_case_alluvial_df_melted$mycol == "lasso_logistic_regression" & losso_cox_res_high_case_alluvial_df_melted$specification == "model"] =  "NA"
+losso_cox_res_high_case_alluvial_df_melted$study[losso_cox_res_high_case_alluvial_df_melted$mycol == "random_classification_forest" & losso_cox_res_high_case_alluvial_df_melted$specification == "model"] =  "NA"
+losso_cox_res_high_case_alluvial_df_melted$study[losso_cox_res_high_case_alluvial_df_melted$mycol == "unregularized_logistic_regression" & losso_cox_res_high_case_alluvial_df_melted$specification == "model"] =  "NA"
+losso_cox_res_high_case_alluvial_df_melted$study[losso_cox_res_high_case_alluvial_df_melted$mycol == "none" & losso_cox_res_high_case_alluvial_df_melted$specification == "feature_selection_method"] =  "NA"
+losso_cox_res_high_case_alluvial_df_melted$study[losso_cox_res_high_case_alluvial_df_melted$mycol == "ttest" & losso_cox_res_high_case_alluvial_df_melted$specification == "feature_selection_method"] =  "NA"
+losso_cox_res_high_case_alluvial_df_melted$study[losso_cox_res_high_case_alluvial_df_melted$mycol == "gene" & losso_cox_res_high_case_alluvial_df_melted$specification == "microbiome_type"] =  "none"
+losso_cox_res_high_case_alluvial_df_melted$study[losso_cox_res_high_case_alluvial_df_melted$mycol == "None" & losso_cox_res_high_case_alluvial_df_melted$specification == "microbiome_type"] =  "none"
+losso_cox_res_high_case_alluvial_df_melted$study[losso_cox_res_high_case_alluvial_df_melted$mycol == "pathway" & losso_cox_res_high_case_alluvial_df_melted$specification == "microbiome_type"] =  "Vatanen"
+losso_cox_res_high_case_alluvial_df_melted$study[losso_cox_res_high_case_alluvial_df_melted$mycol == "species" & losso_cox_res_high_case_alluvial_df_melted$specification == "microbiome_type"] =  "all"
+losso_cox_res_high_case_alluvial_df_melted$study[losso_cox_res_high_case_alluvial_df_melted$mycol == "not weighted" & losso_cox_res_high_case_alluvial_df_melted$specification == "weighted"] =  "NA"
+losso_cox_res_high_case_alluvial_df_melted$study[losso_cox_res_high_case_alluvial_df_melted$mycol == "weighted" & losso_cox_res_high_case_alluvial_df_melted$specification == "weighted"] =  "NA"
+losso_cox_res_high_case_alluvial_df_melted$study[losso_cox_res_high_case_alluvial_df_melted$specification == "horizon_time"] =  "NA"
+losso_cox_res_high_case_alluvial_df_melted$study[losso_cox_res_high_case_alluvial_df_melted$mycol == "microbiome" & losso_cox_res_high_case_alluvial_df_melted$specification == "features"] =  "all"
+losso_cox_res_high_case_alluvial_df_melted$study[losso_cox_res_high_case_alluvial_df_melted$study == "NA"] = "none"
+losso_cox_res_high_case_alluvial_df_melted$mycol = as.character(losso_cox_res_high_case_alluvial_df_melted$mycol)
+losso_cox_res_high_case_alluvial_df_melted$mycol[losso_cox_res_high_case_alluvial_df_melted$mycol=="microbiome,fdr,grs2,number_autoantibodies"] = "microbiome,fdr,grs2,number_AAs"
+losso_cox_res_high_case_alluvial_df_melted$mycol[losso_cox_res_high_case_alluvial_df_melted$mycol=="fdr,grs2,number_autoantibodies"] = "fdr,grs2,number_AAs"
+losso_cox_res_high_case_alluvial_df_melted$mycol[losso_cox_res_high_case_alluvial_df_melted$mycol=="fdr,grs2,number_autoantibodies"] = "fdr,grs2,number_AAs"
+losso_cox_res_high_case_alluvial_df_melted$mycol[losso_cox_res_high_case_alluvial_df_melted$mycol=="microbiome,fdr,grs2,Sex,number_autoantibodies"] = "microbiome,fdr,grs2,Sex,number_AAs"
+
+
+losso_cox_res_high_case_alluvial_df_melted$mycol[losso_cox_res_high_case_alluvial_df_melted$mycol=="one_year_horizon"] = "one_year"
+losso_cox_res_high_case_alluvial_df_melted$mycol[losso_cox_res_high_case_alluvial_df_melted$mycol=="three_year_horizon"] = "three_years"
+
+
+losso_cox_res_high_case_alluvial_df_melted$mycol = as.factor(losso_cox_res_high_case_alluvial_df_melted$mycol) 
+
+#losso_cox_res_high_case_alluvial_df_melted$specification = factor(losso_cox_res_high_case_alluvial_df_melted$specification,levels=c("baseline","HLA","proportion_train","feature_selection","model","weighted","microbiome_type","features","horizon_time"))
+
+losso_cox_res_high_case_alluvial_df_melted$specification = factor(losso_cox_res_high_case_alluvial_df_melted$specification,levels = c("condition","baseline","HLA","proportion_train","feature_selection_method","model","weighted","microbiome_type","features","horizon_time"))
+
+library(pals)
+
+#study_colors_stratum_plot = polychrome(6)
+
+study_colors_stratum_plot = c(all="#EAEDED",Zhang="#D7BDE2",Vatanen="#FAE5D3",Stewart="#D6EAF8","Stewart and Vatanen"="#D4EFDF",none="#E74C3C")
+
+pdf("stratum_plot_v2.pdf",width=15,height=8)
+ggplot(losso_cox_res_high_case_alluvial_df_melted,
+       aes(y = Freq,
+           x = specification, stratum = mycol,
+           fill = study, label = mycol)) +
+  stat_stratum(width = 1) + geom_label(stat = "stratum") + scale_fill_manual(values=study_colors_stratum_plot) + theme_classic() + theme(legend.position="bottom")
+dev.off()
+
 ```
 
 

@@ -1151,6 +1151,34 @@ do
   sbatch -n 1 -c 1 --mem=400G -p highmem -t 1-00:00 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/run_lasso.bash ${line} microbiome,number_autoantibodies,fdr,grs2 number_autoantibodies,fdr,grs2 all 1 C
 done < /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/out_of_mem_jobs2.txt # 125GB and 3 hours would have worked
 
+while read line
+do
+  sbatch -n 1 -c 1 --mem=60G -p short -t 0-03:00 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/run_lasso.bash ${line} microbiome,fdr,grs2 fdr,grs2 all 1 C
+done < /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/health_pre_t1d_input_files.csv
+
+sacct -S 2023-10-30 | grep "run_lasso" | grep -A 10000 "20815634" | grep -v "COMPLETED" | grep -v "FAILED" | awk '{print $1}' | while read line; do grep -m 1 "filtered_transformed_abundance_test.csv" slurm-${line}.out ; done | while read line; do grep ${line} /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/health_pre_t1d_input_files.csv; done > out_of_mem_jobs2.txt
+
+while read line
+do
+  sbatch -n 1 -c 1 --mem=100G -p short -t 0-03:00 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/run_lasso.bash ${line} microbiome,fdr,grs2 fdr,grs2 all 1 C
+done < /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/out_of_mem_jobs2.txt
+
+
+# add sex as a predictor
+
+while read line
+do
+  sbatch -n 1 -c 1 --mem=60G -p short -t 0-03:00 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/run_lasso.bash ${line} microbiome,number_autoantibodies,fdr,grs2,Sex number_autoantibodies,fdr,grs2,Sex all 1 C
+done < /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/health_pre_t1d_input_files.csv
+
+sacct -S 2023-10-25 | grep "run_lasso" | grep -A 10000 "20396088" | grep -v "COMPLETED" | grep -v "FAILED" | awk '{print $1}' | while read line; do grep -m 1 "filtered_transformed_abundance_test.csv" slurm-${line}.out ; done | while read line; do grep ${line} /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/health_pre_t1d_input_files.csv; done > out_of_mem_jobs2.txt
+
+while read line
+do
+  sbatch -n 1 -c 1 --mem=100G -p short -t 0-03:00 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/run_lasso.bash ${line} microbiome,number_autoantibodies,fdr,grs2,Sex number_autoantibodies,fdr,grs2,Sex all 1 C
+done < /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/out_of_mem_jobs2.txt
+
+
 
 while read line 
 do
@@ -1178,6 +1206,15 @@ do
   sbatch -n 1 -c 1 --mem=60G -p short -t 0-03:00 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/run_lasso.bash ${line} microbiome,fdr,grs2 fdr,grs2 all 1 C
 done < /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/failed_lasso_survival_no_T1D_only_microbiome_clinical.txt
 
+#add Sex
+
+
+while read line 
+do
+  sbatch -n 1 -c 1 --mem=100G -p short -t 0-03:00 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/run_lasso.bash ${line} microbiome,fdr,grs2,Sex fdr,grs2,Sex all 1 C
+done < /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/no_health_pre_t1d_input_files.csv
+
+
 
 
 # now do again but with ttest sig
@@ -1197,6 +1234,17 @@ while read line
 do
   sbatch -n 1 -c 1 --mem=50G -p short -t 0-02:00 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/run_lasso.bash ${line} microbiome,number_autoantibodies,fdr,grs2 number_autoantibodies,fdr,grs2 ttest_sig 1 C
 done < /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/failed_lasso_survival_T1D_only_ttest_microbiome_clinical.txt
+
+while read line
+do
+  sbatch -n 1 -c 1 --mem=50G -p short -t 0-02:00 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/run_lasso.bash ${line} microbiome,fdr,grs2 fdr,grs2 ttest_sig 1 C
+done < /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/input_files_ttest_sig_for_survival_healthy_T1D.csv
+
+
+while read line
+do
+  sbatch -n 1 -c 1 --mem=50G -p short -t 0-02:00 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/run_lasso.bash ${line} microbiome,number_autoantibodies,fdr,grs2,Sex number_autoantibodies,fdr,grs2,Sex ttest_sig 1 C
+done < /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/input_files_ttest_sig_for_survival_healthy_T1D.csv
 
 
 while read line
@@ -1225,11 +1273,26 @@ do
   sbatch -n 1 -c 1 --mem=50G -p short -t 0-02:00 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/run_lasso.bash ${line} microbiome,fdr,grs2 fdr,grs2 ttest_sig 1 C
 done < /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/failed_lasso_survival_not_T1D_ttest_microbiome_clinical.txt
 
+while read line
+do
+  sbatch -n 1 -c 1 --mem=50G -p short -t 0-02:00 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/run_lasso.bash ${line} microbiome,fdr,grs2,Sex fdr,grs2,Sex ttest_sig 1 C
+done < /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/input_files_ttest_sig_for_survival_not_healthy_T1D.csv
+
 
 
 while read line
 do
   sbatch -n 1 -c 1 --mem=50G -p short -t 0-02:00 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/run_rf_survival.bash ${line} microbiome,number_autoantibodies,fdr,grs2 number_autoantibodies,fdr,grs2 ttest_sig 1 C
+done < /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/input_files_ttest_sig_for_survival_healthy_T1D.csv
+
+while read line
+do
+  sbatch -n 1 -c 1 --mem=50G -p short -t 0-02:00 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/run_rf_survival.bash ${line} microbiome,fdr,grs2 fdr,grs2 ttest_sig 1 C
+done < /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/input_files_ttest_sig_for_survival_healthy_T1D.csv
+
+while read line
+do
+  sbatch -n 1 -c 1 --mem=50G -p short -t 0-02:00 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/run_rf_survival.bash ${line} microbiome,number_autoantibodies,fdr,grs2,Sex number_autoantibodies,fdr,grs2,Sex ttest_sig 1 C
 done < /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/input_files_ttest_sig_for_survival_healthy_T1D.csv
 
 
@@ -1244,6 +1307,11 @@ while read line
 do
   sbatch -n 1 -c 1 --mem=50G -p short -t 0-11:00 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/run_rf_survival.bash ${line} microbiome,fdr,grs2 fdr,grs2 ttest_sig 1 C
 done < /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/input_files_ttest_sig_for_survival_not_healthy_T1D_2.csv
+
+while read line
+do
+  sbatch -n 1 -c 1 --mem=50G -p short -t 0-02:00 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/run_rf_survival.bash ${line} microbiome,fdr,grs2,Sex fdr,grs2,Sex ttest_sig 1 C
+done < /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/input_files_ttest_sig_for_survival_not_healthy_T1D.csv
 
 ```
 
@@ -1264,7 +1332,21 @@ do
 sbatch -n 1 -c 1 --mem=5G -p short -t 0-2:00 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/run_cox_regression_batch.bash ${x} number_autoantibodies,fdr,grs2
 done
 
+for x in health_pre_t1d_input_files_clinical_only*
+do
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-2:00 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/run_cox_regression_batch.bash ${x} fdr,grs2
+done
+
+
+for x in health_pre_t1d_input_files_clinical_only*
+do
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-2:00 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/run_cox_regression_batch.bash ${x} number_autoantibodies,fdr,grs2,Sex
+done
+
+
 sbatch -n 1 -c 1 --mem=5G -p short -t 0-2:00 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/run_cox_regression_batch.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/no_health_pre_t1d_input_files.csv fdr,grs2
+
+sbatch -n 1 -c 1 --mem=5G -p short -t 0-2:00 /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/scripts/run_cox_regression_batch.bash /n/data1/joslin/icrb/kostic/szimmerman/TEDDY_analysis/no_health_pre_t1d_input_files.csv fdr,grs2,Sex
 
 
 #for x in no_health_pre_t1d_input_files_clinical_only*
